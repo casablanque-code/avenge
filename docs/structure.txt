@@ -1,0 +1,25 @@
+├── proto/
+│   ├── telemetry.proto
+│   └── gen/go/
+├── firmware/
+│   ├── platformio.ini
+│   └── src/
+│       ├── main.cpp
+│       ├── sensor.cpp / .h
+│       └── transport.cpp / .h
+├── edge/
+│   ├── cmd/edge-filter/
+│   │   └── main.go
+│   └── internal/
+│       ├── sensor/
+│       ├── filter/      # SDT
+│       ├── fft/
+│       ├── anomaly/     # RMS + threshold
+│       └── mqtt/
+├── core/
+│   ├── docker-compose.yml
+│   ├── telegraf/
+│   │   └── telegraf.conf
+│   └── clickhouse/
+│       └── init.sql
+└── README.md

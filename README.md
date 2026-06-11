@@ -2,25 +2,40 @@
 
 **Anomaly Vibration Edge Network Go Engine**
 
-A high-performance, industrial-grade Edge Computing engine designed for real-time vibration analytics, inline signal compression, and predictive anomaly detection in Industry 4.0 environments.
+![Go](https://img.shields.io/badge/Go-1.22+-00ADD8?style=flat&logo=go)
+![License](https://img.shields.io/badge/license-MIT-green?style=flat)
+![Build](https://img.shields.io/badge/build-passing-brightgreen?style=flat)
+![Tests](https://img.shields.io/badge/tests-13%20passing-brightgreen?style=flat)
 
-Developed in Go, the engine processes high-frequency IIoT sensor data streams with sub-millisecond latencies, utilizing customized signal processing pipelines and zero-heap-allocation algorithms in the hot path.
+A high-performance Edge Computing engine for real-time vibration analytics, inline signal compression, and predictive anomaly detection in Industry 4.0 environments.
+
+Built in Go with zero external dependencies. Processes high-frequency IIoT sensor streams with sub-millisecond window latency using pre-allocated signal processing pipelines and a zero-heap-allocation hot path.
+
+---
+
+## Prerequisites
+
+| Requirement | Version |
+|---|---|
+| Go | 1.22+ |
+| Docker + Docker Compose | 24.0+ |
+| Python | 3.10+ |
 
 ---
 
 ## Architectural Overview
 
-AVENGE shifts heavy analytical computations directly to the edge (e.g., industrial gateways, single-board computers), drastically mitigating network bandwidth inflation and cutting cloud storage overhead. 
+AVENGE shifts heavy analytical computation directly to the edge — industrial gateways, single-board computers, or embedded Linux nodes. Instead of flooding the network with raw high-frequency ADC samples, the engine performs inline feature extraction, applies time-series compression, evaluates anomaly state locally, and pushes only structural updates downstream.
 
-Instead of dumping raw, redundant high-frequency ADC telemetry over the network, AVENGE performs inline feature extraction, applies lossy-but-meaningful time-series compression, evaluates anomaly states locally, and pushes structural updates downstream.
-
+```
 +───────────────────────────────+      JSONL Stream      +───────────────────────────────+
 │    Vibration Sensor Axis      ├───────────────────────>│         AVENGE Engine         │
-│   (e.g., MPU-6050 Emulator)   │  (Named Pipe / Stdin)  │    (FFT -> SDT -> Z-Score)    │
+│   (e.g., MPU-6050 / ESP32)    │  (Named Pipe / Stdin)  │    (FFT -> SDT -> Z-Score)    │
 +───────────────────────────────+                        +───────────────┬───────────────+
                                                                          │
-                                                                         │ Custom MQTT Client
-                                                                         │ (QoS 1 Protocols)
+                                                                         │ MQTT 3.1.1 (QoS 1)
+                                                                         │ sm/telemetry/<id>
+                                                                         │ sm/anomaly/<id>
                                                                          ▼
 +───────────────────────────────+     Native TCP Bulk    +───────────────────────────────+
 │    Analytics Database         │<───────────────────────┤        Telegraf Agent         │
@@ -31,108 +46,203 @@ Instead of dumping raw, redundant high-frequency ADC telemetry over the network,
                 ▼
 +───────────────────────────────+
 │       Grafana Analytics       │
-│    (Real-time Dashboards)     │
+│    (Auto-provisioned dash)    │
 +───────────────────────────────+
+```
 
 ---
 
 ## Core Technical Features
 
-* High-Performance Streaming Pipeline: Asynchronous processing architecture optimized for low-power edge nodes.
-* Zero Allocations in Hot Path: All critical processing structures (FFT twiddle factors, ring buffers, and matrix spaces) are pre-allocated during the application warmup phase. Garbage Collector overhead is completely bypassed during operational runtime.
-* Autonomous Edge Operations: Fault detection logic runs completely out-of-band from centralized servers. Anomaly evaluation takes < 1ms, enabling instant closed-loop safety responses at the machine level.
-* Advanced Bandwidth Optimization: Inline data compression algorithms allow telemetry delivery even over highly constrained physical layers (such as LoRaWAN, cellular links, or satellite networks).
+- **Zero Allocations in Hot Path** — FFT buffers, ring buffer, and SDT accumulator are pre-allocated at startup. The GC is not involved during steady-state processing.
+- **Autonomous Edge Operations** — anomaly detection runs entirely offline from cloud. Detection latency is under 1 ms per 512-sample window, enabling closed-loop safety responses at the machine level.
+- **Self-contained MQTT Client** — MQTT 3.1.1 implemented from spec over raw `net.Conn`. No external dependencies, no module proxy required. Suitable for air-gapped deployments.
+- **Bandwidth-Aware Design** — SDT compression reduces telemetry to structural turning points only. Compatible with constrained uplinks: LoRaWAN, cellular, satellite.
 
 ---
 
 ## Algorithmic Framework
 
-1. Cooley-Tukey Radix-2 FFT Frame Processing
-Time-domain vibration arrays are converted into frequency spectrum coefficients using a high-speed Fast Fourier Transform (configured at N=512 samples). 
-* DC Offset Mitigation: The static gravitational acceleration component (1g) is dynamically stripped from the window prior to execution, ensuring subtle, high-frequency shaft degradation harmonics are not masked by static bias.
+### 1. Cooley-Tukey Radix-2 FFT
 
-2. Swinging Door Trending (Bristol SDT Compression)
-To prevent database bloating from immutable harmonic repetitions, AVENGE implements an inline Bristol SDT algorithm (configured with a deadband threshold of epsilon = 0.05g). The engine records only structural "turning points" where the signal vector significantly deviates from the established slope, achieving 10x to 50x data compression during steady-state machine operations without losing peak physical information.
+Time-domain vibration windows are converted to frequency-domain coefficients using a DIT radix-2 FFT (N=512 samples, ~0.5 s at 1 kHz).
 
-3. Stateful Moving Z-Score Anomaly Detection
-The system tracks signal degradation via windowed Root Mean Square (RMS) energy. A normal operational baseline (mean and std dev) is continuously updated using an Exponential Moving Average (EMA) with a smoothing factor of alpha=0.1.
-* Anti-Adaptation Interlocking: The moment a critical statistical threshold (Z > 3.5) is violated, the baseline update loop is instantly frozen. This stops the engine from adapting to or normalizing a progressive, creeping machine fault, ensuring the alarm remains active.
+- **DC Offset Mitigation** — the static gravitational component (1 g) is subtracted in-place before each transform, preventing it from masking high-frequency fault harmonics.
+- **FFTProcessor** — reuses `[]complex128` and power spectrum buffers across calls. Zero heap allocations per window after warmup.
 
----
+### 2. Swinging Door Trending (Bristol SDT)
 
-## Data Schema & Ingestion Layout
+Inline time-series compression based on the Bristol SDT algorithm (1990). The engine stores only "turning points" — samples where the signal vector deviates beyond a linear deadband (ε = 0.05 g). Intermediate points that fall within the corridor are discarded.
 
-MQTT Topic Topology (Protocol 3.1.1)
-The engine utilizes an optimized TCP-socket MQTT client to dispatch messages under two strictly partitioned channels:
-* sm/telemetry/sensor_id — High-frequency turning points captured by the SDT compression engine.
-* sm/anomaly/sensor_id — Rare, discrete edge-triggered state-transition events (onset / clear).
+Compression results on synthetic signal:
+- Steady-state normal vibration: **20–50×**
+- Anomaly zone: **~2×** — degraded ratio is itself a secondary fault indicator
 
-Database Infrastructure (ClickHouse DDL)
-* iot.telemetry: Time-series table mapping the compressed vibration data. Configured with a MergeTree engine and an automated data eviction layer: TTL ts + INTERVAL 30 DAY.
-* iot.anomaly_events: Relational table capturing historical alerts and state-changes. Used for Grafana annotations and long-term audits: TTL ts + INTERVAL 90 DAY.
-* iot.telemetry_1m & iot.mv_telemetry_1m: A real-time Materialized View powered by a SummingMergeTree. It rolls up telemetry raw points into 1-minute statistical aggregates on the fly, guaranteeing instant rendering of multi-month dashboards.
+### 3. Stateful Z-Score Anomaly Detection
+
+Window RMS energy is compared against a rolling baseline (mean ± std dev) updated via Exponential Moving Average (α = 0.1).
+
+- **Warmup phase** — first N windows establish the normal RMS distribution before alerting is enabled.
+- **Anti-adaptation interlock** — once Z > 3.5 threshold is crossed, the baseline update loop freezes. The engine stops normalizing a creeping fault and holds the alarm state until the signal returns to baseline.
+- State transitions emit typed MQTT events: `onset` (NORMAL → ANOMALY) and `clear` (ANOMALY → NORMAL).
 
 ---
 
-## Performance Benchmarks (E2E Test)
+## Repository Structure
 
-Actual throughput log from an end-to-end stress test executed at a native 1 kHz hardware sampling rate:
-
-  edge-filter starting (streaming mode, constant memory)
-    window=512 samples  rate=1000 Hz  SDT epsilon=0.050 g
-
-  win    1  t=  0.511s  [ WARM ]  fft:   50.8Hz(1.4e-01)   48.8Hz(6.4e-02)  [113.899ms]
-  win    2  t=  1.023s  [ WARM ]  fft:   50.8Hz(1.4e-01)   48.8Hz(6.3e-02)  [617us]
-  ...
-  win   12  t=  6.143s  [  OK  ]  fft:   50.8Hz(1.4e-01)   48.8Hz(6.4e-02)  [558us]
-  win   13  t=  6.655s  [ ANOM ]  fft:   50.8Hz(1.5e-01)   48.8Hz(6.3e-02)   ANOMALY z=+3.6 rms=1.2914  [602us]
-  win   14  t=  7.167s  [ ANOM ]  fft:   50.8Hz(1.5e-01)  312.5Hz(7.9e-02)  [728us]
-  win   15  t=  7.679s  [ ANOM ]  fft:   50.8Hz(1.4e-01)  312.5Hz(1.3e-01)  [646us]
-
-* Execution Velocity: After allocator warmup (Window 1), computing the complete analytical window (512 samples) settles between 550-700 microseconds. The pipeline runs roughly 700x faster than real-time, leaving plenty of CPU overhead on low-power edge nodes.
-* Diagnostic Precision: At Window 13, the stateful detector catches an analytical Z-score anomaly (z=+3.6). At Windows 14 and 15, the FFT subsystem isolates a major frequency surge exactly at 312.5Hz, mapping directly to the Ball Pass Frequency Outer Race (BPFO) defect signature of a failing bearing.
+```
+avenge/
+├── firmware-sim/               # Hardware-free signal generator (Python)
+│   ├── signal_generator.py     # Synthetic MPU-6050 output: normal + bearing fault modes
+│   └── inspect.py              # ASCII sparkline visualizer
+├── edge/                       # AVENGE engine (Go)
+│   ├── cmd/edge-filter/
+│   │   └── main.go             # Streaming pipeline entrypoint
+│   └── internal/
+│       ├── sensor/             # JSONL reader (hardware-agnostic interface)
+│       ├── fft/                # Cooley-Tukey FFT + FFTProcessor
+│       ├── filter/             # Swinging Door Trending compression
+│       ├── anomaly/            # RMS + Z-score stateful detector
+│       └── mqtt/               # MQTT 3.1.1 client + typed publisher
+└── core/                       # Central analytics stack
+    ├── docker-compose.yml      # Mosquitto + Telegraf + ClickHouse + Grafana
+    ├── mosquitto/config/
+    ├── telegraf/
+    ├── clickhouse/             # DDL: telemetry, anomaly_events, telemetry_1m MV
+    └── grafana/provisioning/   # Auto-provisioned datasource + dashboard
+```
 
 ---
 
-## Deployment & Execution
+## Data Schema & Ingestion
 
-1. Provision Ingestion Stack
-Spin up the Dockerized infrastructure (Eclipse Mosquitto MQTT, Telegraf Agent, ClickHouse Server, Grafana) and initialize storage tables:
-  docker compose down -v
-  docker compose up -d
+### MQTT Topic Layout
 
-2. Compile Edge Binary
-Navigate to the edge subsystem and compile the optimized Go executable:
-  cd edge
-  go build -o edge-filter cmd/main_2.go
+| Topic | Payload | Frequency |
+|---|---|---|
+| `sm/telemetry/<sensor_id>` | SDT turning points + window RMS | Every ~10 s (20 windows) |
+| `sm/anomaly/<sensor_id>` | State transition event (onset / clear) | On state change only |
 
-3. Run Pipeline Integration Test
-Launch the physics-based bearing signal generator and pipe the raw high-frequency telemetry directly into the AVENGE engine:
-  python3 firmware-sim/signal_generator.py stream --anomaly-after 6.0 | ./edge-filter --sensor-id bearing_01
+### ClickHouse Tables
 
-4. Visualize via Grafana
-* Navigate to http://localhost:3000 (Default Credentials: admin / admin).
-* Go to Dashboards -> Import.
-* Load the pre-configured vibration.json profile from the repository root.
-* Monitor live charts for RMS trends, structural SDT points, active Z-score alerts, and real-time bandwidth compression ratios.
+| Table | Engine | TTL | Purpose |
+|---|---|---|---|
+| `iot.telemetry` | MergeTree | 30 days | Compressed vibration points |
+| `iot.anomaly_events` | MergeTree | 90 days | Alert history |
+| `iot.telemetry_1m` | SummingMergeTree | — | 1-minute RMS aggregates (Materialized View) |
+
+---
+
+## Performance Benchmarks
+
+End-to-end test at 1 kHz sampling rate, 512-sample windows:
+
+```
+edge-filter starting (streaming mode, constant memory)
+  window=512 samples  rate=1000 Hz  SDT ε=0.050 g
+
+win    1  t=  0.511s  [ WARM ]  fft:   50.8Hz(1.4e-01)   48.8Hz(6.4e-02)  [113.899ms]
+win    2  t=  1.023s  [ WARM ]  fft:   50.8Hz(1.4e-01)   48.8Hz(6.3e-02)  [617us]
+...
+win   12  t=  6.143s  [  OK  ]  fft:   50.8Hz(1.4e-01)   48.8Hz(6.4e-02)  [558us]
+win   13  t=  6.655s  [ ANOM ]  fft:   50.8Hz(1.5e-01)   48.8Hz(6.3e-02)  ⚡ ANOMALY z=+3.6σ rms=1.2914  [602us]
+win   14  t=  7.167s  [ ANOM ]  fft:   50.8Hz(1.5e-01)  312.5Hz(7.9e-02)  [728us]
+win   15  t=  7.679s  [ ANOM ]  fft:   50.8Hz(1.4e-01)  312.5Hz(1.3e-01)  [646us]
+```
+
+- **Throughput** — after allocator warmup (window 1), each analytical window processes in **550–700 µs** (~700× faster than real-time). Leaves substantial CPU headroom on Raspberry Pi-class hardware.
+- **Detection precision** — window 13: Z-score detector fires at z=+3.6σ. Windows 14–15: FFT isolates a surge at exactly **312.5 Hz**, the theoretical Ball Pass Frequency Outer Race (BPFO) signature for a failing bearing at 50 Hz shaft speed.
+
+---
+
+## Deployment
+
+### 1. Start the analytics stack
+
+```bash
+cd core/
+docker compose up -d
+sleep 20 && docker compose ps   # wait for healthy status
+```
+
+Initialize ClickHouse schema (first run only):
+
+```bash
+docker exec sm_clickhouse clickhouse-client \
+  --user default --password clickhouse \
+  --query "CREATE DATABASE IF NOT EXISTS iot"
+
+docker exec -i sm_clickhouse clickhouse-client \
+  --user default --password clickhouse \
+  < clickhouse/init.sql
+```
+
+### 2. Build the edge binary
+
+```bash
+cd edge/
+go build -o edge-filter ./cmd/edge-filter/
+```
+
+### 3. Run the pipeline
+
+Normal mode (steady-state telemetry):
+
+```bash
+python3 firmware-sim/signal_generator.py stream \
+  | ./edge/edge-filter --broker localhost:1883 --sensor-id bearing_01
+```
+
+Fault injection (anomaly triggers after 15 seconds):
+
+```bash
+python3 firmware-sim/signal_generator.py stream --anomaly-after 15 \
+  | ./edge/edge-filter --broker localhost:1883 --sensor-id bearing_01
+```
+
+Offline mode (no broker required):
+
+```bash
+python3 firmware-sim/signal_generator.py batch --samples 8000 --anomaly \
+  | ./edge/edge-filter --no-mqtt --sensor-id bearing_01
+```
+
+### 4. Open Grafana
+
+Navigate to `http://localhost:3000` (credentials: `admin` / `admin`).
+
+The **Vibration Monitor** dashboard is auto-provisioned on first startup — no manual import required. It includes:
+- RMS vibration timeline (1-minute aggregates)
+- Raw SDT turning points scatter
+- Anomaly events table with color-coded state transitions
+- SDT compression ratio gauge
+- Anomaly rate stat panel
 
 ---
 
 ## Technology Stack
 
-* Edge Application: Go 1.21+ (Pure native sockets, zero external framework dependencies)
-* Ingestion Middleware: InfluxData Telegraf
-* Broker Architecture: MQTT 3.1.1 (Eclipse Mosquitto)
-* OLAP Database Cluster: Yandex ClickHouse
-* Analytics Frontend: Grafana Labs
+| Component | Technology |
+|---|---|
+| Edge engine | Go 1.22, pure stdlib |
+| Signal generator | Python 3.10+ |
+| MQTT broker | Eclipse Mosquitto 2.0 |
+| Ingestion agent | InfluxData Telegraf 1.30 |
+| Time-series database | ClickHouse 24.3 |
+| Dashboards | Grafana 10.4 |
+| Containerization | Docker Compose |
 
 ---
 
-## Strategic Roadmap
+## Roadmap
 
-* [x] Adaptive thresholds (Rolling EMA mean/std deviation)
-* [x] Strict MQTT QoS 1 Ingestion Handshaking & Buffering
-* [ ] Frequency band-specific anomaly filtering (Sub-band partitioning)
-* [ ] Multi-sensor input orchestration & Cross-axis correlation
-* [ ] Outbound alert notifications (Slack / Discord Webhooks, PagerDuty integration)
-* [ ] Edge REST API layer for configuration updates
+- [x] Cooley-Tukey FFT with zero-alloc processor
+- [x] Bristol SDT time-series compression
+- [x] Stateful Z-score anomaly detection with anti-adaptation interlock
+- [x] MQTT 3.1.1 client (stdlib only, QoS 0/1)
+- [x] Auto-provisioned Grafana dashboard
+- [ ] Frequency band-specific anomaly filtering (sub-band partitioning)
+- [ ] Multi-sensor orchestration and cross-axis correlation
+- [ ] Outbound alert webhooks (Slack, PagerDuty)
+- [ ] Edge REST API for runtime configuration
+- [ ] Step 4: real MPU-6050 hardware integration (ESP32 + Raspberry Pi)
