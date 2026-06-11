@@ -1,0 +1,112 @@
+version: "3.9"
+
+# Smart Manufacturing — Core Stack
+#
+# Services:
+#   mosquitto   MQTT broker  (port 1883)
+#   clickhouse  Time-series DB (port 8123 HTTP, 9000 native)
+#   telegraf    MQTT → ClickHouse bridge (no exposed ports)
+#   grafana     Dashboards (port 3000)
+#
+# Data flow:
+#   edge-filter → MQTT(mosquitto) → Telegraf → ClickHouse → Grafana
+#
+# Start:  docker compose up -d
+# Stop:   docker compose down
+# Logs:   docker compose logs -f telegraf
+
+networks:
+  iot:
+    driver: bridge
+
+volumes:
+  clickhouse-data:
+  grafana-data:
+  mosquitto-data:
+
+services:
+
+  # ── MQTT Broker ────────────────────────────────────────────────────────
+  mosquitto:
+    image: eclipse-mosquitto:2.0
+    container_name: sm_mosquitto
+    restart: unless-stopped
+    networks: [iot]
+    ports:
+      - "1883:1883"   # MQTT (plaintext — PoC only; use TLS in production)
+      - "9001:9001"   # WebSocket (for browser-based debugging tools)
+    volumes:
+      - ./mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto-data:/mosquitto/data
+    healthcheck:
+      test: ["CMD", "mosquitto_sub", "-t", "$$SYS/#", "-C", "1", "-W", "2"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ── ClickHouse ─────────────────────────────────────────────────────────
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.3-alpine
+    container_name: sm_clickhouse
+    restart: unless-stopped
+    networks: [iot]
+    ports:
+      - "8123:8123"   # HTTP interface (used by Grafana plugin)
+      - "9000:9000"   # Native TCP (used by Telegraf)
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+    environment:
+      CLICKHOUSE_DB: iot
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: clickhouse
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Telegraf (MQTT subscriber → ClickHouse writer) ─────────────────────
+  telegraf:
+    image: telegraf:1.30-alpine
+    container_name: sm_telegraf
+    restart: unless-stopped
+    networks: [iot]
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    volumes:
+      - ./telegraf/telegraf.conf:/etc/telegraf/telegraf.conf:ro
+    environment:
+      # Passed into telegraf.conf via $$ substitution
+      MQTT_BROKER: "tcp://mosquitto:1883"
+      CLICKHOUSE_DSN: "tcp://clickhouse:9000?database=iot"
+
+  # ── Grafana ────────────────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:10.4.2
+    container_name: sm_grafana
+    restart: unless-stopped
+    networks: [iot]
+    ports:
+      - "3000:3000"
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin   # change for production
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_INSTALL_PLUGINS: grafana-clickhouse-datasource
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
