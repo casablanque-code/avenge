@@ -9,8 +9,15 @@ type Config struct {
 	SampleRate      int
 	WindowSize      int
 	BaselineWindows int
-	ZScoreThreshold float64
-	MinStdDev       float64
+
+	// EnterThreshold: z-score above which a NORMAL window becomes ANOMALY.
+	EnterThreshold float64
+	// ExitThreshold: z-score below which an ANOMALY window becomes NORMAL.
+	// Must be < EnterThreshold to provide hysteresis and avoid flapping
+	// when z oscillates around a single threshold.
+	ExitThreshold float64
+
+	MinStdDev float64
 }
 
 // DefaultConfig returns production-ready defaults for 1 kHz MPU-6050.
@@ -19,15 +26,26 @@ func DefaultConfig() Config {
 		SampleRate:      1000,
 		WindowSize:      256,
 		BaselineWindows: 10,
-		ZScoreThreshold: 3.5,
+		EnterThreshold:  3.5,
+		ExitThreshold:   2.5,
 		MinStdDev:       0.002,
 	}
 }
+
+// Severity classifies how far the current window is from baseline.
+type Severity string
+
+const (
+	SeverityNormal   Severity = "normal"
+	SeverityWarning  Severity = "warning"
+	SeverityCritical Severity = "critical"
+)
 
 // Event is emitted when the detector changes state.
 type Event struct {
 	T              float64
 	Anomaly        bool
+	Severity       Severity
 	RMS            float64
 	ZScore         float64
 	BaselineMean   float64
@@ -45,6 +63,7 @@ type Detector struct {
 	baseMean         float64
 	baseStdDev       float64
 	lastAnomalyState bool
+	lastSeverity     Severity
 }
 
 // NewDetector creates a Detector with the given configuration.
@@ -81,26 +100,46 @@ func (d *Detector) IngestWindow(samples []float64, windowStartT float64) *Event 
 		std = d.cfg.MinStdDev
 	}
 	z := (rms - d.baseMean) / std
-	isAnomaly := z > d.cfg.ZScoreThreshold
+
+	// Hysteresis: use a lower exit threshold than enter threshold so that
+	// a z-score oscillating near the boundary doesn't cause
+	// onset/clear/onset/clear flapping.
+	var isAnomaly bool
+	if d.lastAnomalyState {
+		isAnomaly = z > d.cfg.ExitThreshold
+	} else {
+		isAnomaly = z > d.cfg.EnterThreshold
+	}
+
+	severity := classifySeverity(z, d.cfg)
 
 	// Update baseline ONLY when not in anomaly state.
 	// Freezing the baseline during a fault keeps z-scores meaningful
 	// and prevents the detector from silently normalising a degraded machine.
 	if !isAnomaly {
 		const alpha = 0.1 // slower EMA = less drift on gradual fault onset
-		d.baseMean = (1-alpha)*d.baseMean + alpha*rms
-		variance := (1-alpha)*d.baseStdDev*d.baseStdDev + alpha*(rms-d.baseMean)*(rms-d.baseMean)
+
+		// Compute variance using the OLD mean before updating it.
+		// Using the already-updated mean here biases variance downward,
+		// which makes the detector progressively less sensitive over time.
+		oldMean := d.baseMean
+		newMean := (1-alpha)*oldMean + alpha*rms
+		variance := (1-alpha)*d.baseStdDev*d.baseStdDev + alpha*(rms-oldMean)*(rms-oldMean)
+
+		d.baseMean = newMean
 		d.baseStdDev = math.Sqrt(variance)
 	}
 
-	// Emit event on state transition only.
-	if isAnomaly == d.lastAnomalyState {
+	// Emit event on state OR severity transition.
+	if isAnomaly == d.lastAnomalyState && severity == d.lastSeverity {
 		return nil
 	}
 	d.lastAnomalyState = isAnomaly
+	d.lastSeverity = severity
 	return &Event{
 		T:              windowStartT,
 		Anomaly:        isAnomaly,
+		Severity:       severity,
 		RMS:            rms,
 		ZScore:         z,
 		BaselineMean:   d.baseMean,
@@ -113,6 +152,23 @@ func (d *Detector) State() bool { return d.lastAnomalyState }
 
 // BaselineReady reports whether warmup is complete.
 func (d *Detector) BaselineReady() bool { return d.baselineReady }
+
+// classifySeverity maps a z-score to a coarse severity bucket using the
+// configured thresholds:
+//
+//	z <= ExitThreshold          -> normal
+//	ExitThreshold < z <= Enter  -> warning
+//	z > EnterThreshold          -> critical
+func classifySeverity(z float64, cfg Config) Severity {
+	switch {
+	case z > cfg.EnterThreshold:
+		return SeverityCritical
+	case z > cfg.ExitThreshold:
+		return SeverityWarning
+	default:
+		return SeverityNormal
+	}
+}
 
 func computeRMS(samples []float64) float64 {
 	if len(samples) == 0 {
