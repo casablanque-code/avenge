@@ -1,18 +1,28 @@
-version: "3.9"
-
-# Smart Manufacturing — Core Stack
+# AVENGE — Core Analytics Stack
 #
 # Services:
 #   mosquitto   MQTT broker  (port 1883)
 #   clickhouse  Time-series DB (port 8123 HTTP, 9000 native)
-#   telegraf    MQTT → ClickHouse bridge (no exposed ports)
+#   telegraf    MQTT -> ClickHouse bridge (no exposed ports)
 #   grafana     Dashboards (port 3000)
 #
 # Data flow:
-#   edge-filter → MQTT(mosquitto) → Telegraf → ClickHouse → Grafana
+#   edge-filter -> MQTT(mosquitto) -> Telegraf -> ClickHouse -> Grafana
+#
+# First-time setup (after `docker compose up -d`):
+#   1. Wait for clickhouse to become healthy: docker compose ps
+#   2. Apply schema manually (see clickhouse/init.sql header for why):
+#        docker exec sm_clickhouse clickhouse-client \
+#          --user default --password clickhouse \
+#          --query "CREATE DATABASE IF NOT EXISTS iot"
+#        docker exec -i sm_clickhouse clickhouse-client \
+#          --user default --password clickhouse --multiquery \
+#          < clickhouse/init.sql
+#   3. Restart telegraf so it (re)connects after schema exists:
+#        docker compose restart telegraf
 #
 # Start:  docker compose up -d
-# Stop:   docker compose down
+# Stop:   docker compose down        (use -v to also wipe ClickHouse data)
 # Logs:   docker compose logs -f telegraf
 
 networks:
@@ -51,12 +61,16 @@ services:
     restart: unless-stopped
     networks: [iot]
     ports:
-      - "8123:8123"   # HTTP interface (used by Grafana plugin)
-      - "9000:9000"   # Native TCP (used by Telegraf)
+      - "8123:8123"   # HTTP interface (used by Grafana plugin + Telegraf)
+      - "9000:9000"   # Native TCP
     volumes:
       - clickhouse-data:/var/lib/clickhouse
+      # NOTE: init.sql is intentionally NOT mounted to
+      # docker-entrypoint-initdb.d — multi-statement scripts there trigger
+      # a double-process startup bug (EADDRINUSE on 8123/9000/9009) in the
+      # 24.3-alpine image. Apply the schema manually — see header comment
+      # in clickhouse/init.sql.
     environment:
-      CLICKHOUSE_DB: iot
       CLICKHOUSE_USER: default
       CLICKHOUSE_PASSWORD: clickhouse
     ulimits:
@@ -64,6 +78,8 @@ services:
         soft: 262144
         hard: 262144
     healthcheck:
+      # Use 127.0.0.1, not localhost — Alpine resolves localhost to ::1
+      # (IPv6) first, but ClickHouse's HTTP server binds 127.0.0.1 (IPv4).
       test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:8123/ping"]
       interval: 10s
       timeout: 5s
@@ -83,9 +99,7 @@ services:
     volumes:
       - ./telegraf/telegraf.conf:/etc/telegraf/telegraf.conf:ro
     environment:
-      # Passed into telegraf.conf via $$ substitution
       MQTT_BROKER: "tcp://mosquitto:1883"
-      CLICKHOUSE_DSN: "tcp://clickhouse:9000?database=iot"
 
   # ── Grafana ────────────────────────────────────────────────────────────
   grafana:
@@ -101,13 +115,17 @@ services:
     volumes:
       - grafana-data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      # ClickHouse datasource plugin is NOT auto-installed via
+      # GF_INSTALL_PLUGINS — that requires reaching grafana.com, which is
+      # unreachable from this network. Instead the plugin zip is downloaded
+      # once and mounted read-only. See README "Deployment" for the
+      # download command.
       - ./grafana/plugins:/var/lib/grafana/plugins:ro
     environment:
       GF_SECURITY_ADMIN_PASSWORD: admin   # change for production
       GF_USERS_ALLOW_SIGN_UP: "false"
-      
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000/api/health"]
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:3000/api/health"]
       interval: 15s
       timeout: 5s
       retries: 5

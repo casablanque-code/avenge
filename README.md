@@ -157,15 +157,31 @@ win   15  t=  7.679s  [ ANOM ]  fft:   50.8Hz(1.4e-01)  312.5Hz(1.3e-01)  [646us
 
 ## Deployment
 
-### 1. Start the analytics stack
+### 1. Download the ClickHouse Grafana plugin (one-time)
+
+Grafana's `GF_INSTALL_PLUGINS` requires reaching `grafana.com`, which may be
+blocked on isolated networks. Download the plugin manually instead:
+
+```bash
+mkdir -p core/grafana/plugins
+curl -L -o /tmp/clickhouse-plugin.zip \
+  https://github.com/grafana/clickhouse-datasource/releases/download/v4.0.4/grafana-clickhouse-datasource-4.0.4.linux_amd64.zip
+unzip -o /tmp/clickhouse-plugin.zip -d core/grafana/plugins/
+```
+
+### 2. Start the analytics stack
 
 ```bash
 cd core/
 docker compose up -d
-sleep 20 && docker compose ps   # wait for healthy status
+sleep 20 && docker compose ps   # wait for clickhouse + mosquitto + grafana healthy
 ```
 
-Initialize ClickHouse schema (first run only):
+### 3. Apply the ClickHouse schema (first run only)
+
+ClickHouse 24.3-alpine has a known bug where multi-statement
+`docker-entrypoint-initdb.d` scripts cause a double-process startup
+(EADDRINUSE). The schema is applied manually instead:
 
 ```bash
 docker exec sm_clickhouse clickhouse-client \
@@ -173,18 +189,32 @@ docker exec sm_clickhouse clickhouse-client \
   --query "CREATE DATABASE IF NOT EXISTS iot"
 
 docker exec -i sm_clickhouse clickhouse-client \
-  --user default --password clickhouse \
+  --user default --password clickhouse --multiquery \
   < clickhouse/init.sql
+
+# Verify
+docker exec sm_clickhouse clickhouse-client \
+  --user default --password clickhouse \
+  --query "SHOW TABLES FROM iot"
 ```
 
-### 2. Build the edge binary
+Expected: `anomaly_events`, `mv_anomaly_parse`, `mv_telemetry_1m`,
+`mv_telemetry_parse`, `telemetry`, `telemetry_1m`, `telemetry_raw`.
+
+Restart Telegraf so it reconnects cleanly now that the schema exists:
 
 ```bash
-cd edge/
+docker compose restart telegraf
+```
+
+### 4. Build the edge binary
+
+```bash
+cd ../edge/
 go build -o edge-filter ./cmd/edge-filter/
 ```
 
-### 3. Run the pipeline
+### 5. Run the pipeline
 
 Normal mode (steady-state telemetry):
 
@@ -207,7 +237,7 @@ python3 firmware-sim/signal_generator.py batch --samples 8000 --anomaly \
   | ./edge/edge-filter --no-mqtt --sensor-id bearing_01
 ```
 
-### 4. Open Grafana
+### 6. Open Grafana
 
 Navigate to `http://localhost:3000` (credentials: `admin` / `admin`).
 
