@@ -13,5 +13,5 @@ datasources:
       username: default
       defaultDatabase: iot
     secureJsonData:
-      password: ""
+      password: "clickhouse"
     editable: true

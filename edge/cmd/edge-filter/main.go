@@ -1,248 +1,262 @@
-// edge-filter: streaming pipeline with constant memory footprint.
-//
-// Data flow (per window of fftWindow samples):
-//
-//	stdin (JSONL) -> sensor.Reader -> ring buffer
-//	                                       |
-//	                              [full window ready]
-//	                                       |
-//	                    ┌──────────────────┼──────────────────┐
-//	                    ▼                  ▼                  ▼
-//	             FFTProcessor           Detector            SDT
-//	           (reused buffers)    (RMS + Z-score)    (compression)
-//	                    │                  │                  │
-//	                    └──────────────────┴──────────────────┘
-//	                                       │
-//	                              Report / MQTT (Step 3)
-//
-// Memory usage is O(fftWindow) regardless of stream duration.
-// No heap allocations in the hot path after startup.
-//
-// Usage:
-//
-//	python3 signal_generator.py stream --anomaly-after 8 | go run ./cmd/edge-filter
-//	python3 signal_generator.py batch  --samples 8000 --anomaly | go run ./cmd/edge-filter
+// edge-filter: streaming pipeline with MQTT output.
 package main
 
 import (
-	"fmt"
-	"strings"
-	"os"
-	"os/signal"
-	"syscall"
-	"time"
+"flag"
+"fmt"
+"os"
+"os/signal"
+"strings"
+"syscall"
+"time"
 
-	"github.com/casablanque-code/smart-manufacturing/edge/internal/anomaly"
-	"github.com/casablanque-code/smart-manufacturing/edge/internal/filter"
-	"github.com/casablanque-code/smart-manufacturing/edge/internal/fft"
-	"github.com/casablanque-code/smart-manufacturing/edge/internal/sensor"
+"github.com/casablanque-code/smart-manufacturing/edge/internal/anomaly"
+"github.com/casablanque-code/smart-manufacturing/edge/internal/filter"
+"github.com/casablanque-code/smart-manufacturing/edge/internal/fft"
+mqttclient "github.com/casablanque-code/smart-manufacturing/edge/internal/mqtt"
+"github.com/casablanque-code/smart-manufacturing/edge/internal/sensor"
 )
 
-// Pipeline parameters — all sizes are powers of two so FFT is happy.
 const (
-	sampleRate = 1000 // Hz
-	fftWindow  = 512  // samples per processing window (~0.5 s)
-	sdtEpsilon = 0.05 // SDT deadband in g
-	topFreqs   = 4    // dominant frequencies to log
+sampleRate = 1000
+fftWindow  = 512
+sdtEpsilon = 0.05
+topFreqs   = 4
 )
 
 func main() {
-	fmt.Fprintln(os.Stderr, "edge-filter starting (streaming mode, constant memory)")
-	fmt.Fprintf(os.Stderr, "  window=%d samples  rate=%d Hz  SDT ε=%.3f g\n\n",
-		fftWindow, sampleRate, sdtEpsilon)
+broker   := flag.String("broker",    "localhost:1883", "MQTT broker address")
+sensorID := flag.String("sensor-id", "bearing_01",    "Sensor identifier")
+noMQTT   := flag.Bool("no-mqtt",     false,           "Disable MQTT output")
+flag.Parse()
 
-	// ── One-time allocations ──────────────────────────────────────────────
-	// After this block, the hot loop makes zero heap allocations.
+fmt.Fprintf(os.Stderr, "edge-filter  sensor=%s  broker=%s\n", *sensorID, *broker)
 
-	// Ring buffer: exactly one window of samples.
-	// We process window-by-window (non-overlapping) for simplicity.
-	// A production system would use a 50%-overlap sliding window for
-	// smoother anomaly detection at window boundaries.
-	ringBuf := make([]float64, fftWindow)
-	ringFilled := 0
-
-	// SDT accumulates points across windows and flushes periodically.
-	// Pre-allocate to avoid growth in the hot path.
-	rawPoints := make([]filter.Point, 0, fftWindow*10)
-
-	fftProc := fft.NewProcessor(fftWindow, sampleRate)
-	detCfg := anomaly.DefaultConfig()
-	detCfg.SampleRate = sampleRate
-	detCfg.BaselineWindows = 10
-	det := anomaly.NewDetector(detCfg)
-
-	reader := sensor.NewReader(os.Stdin)
-
-	// ── Stats ─────────────────────────────────────────────────────────────
-	var (
-		totalSamples   int64
-		totalWindows   int
-		anomalyWindows int
-		totalRaw       int
-		totalSDT       int
-		windowStart    time.Time
-	)
-	windowStart = time.Now()
-
-	// Graceful shutdown on SIGINT/SIGTERM — print final stats.
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	go func() {
-		<-sigCh
-		printFinalStats(totalSamples, totalWindows, anomalyWindows, totalRaw, totalSDT)
-		os.Exit(0)
-	}()
-
-	// ── Hot loop ──────────────────────────────────────────────────────────
-	for {
-		s, err := reader.Next()
-		if err != nil {
-			// EOF — stream ended (batch mode). Print stats and exit.
-			break
-		}
-
-		// Fill the ring buffer one sample at a time.
-		ringBuf[ringFilled] = s.Value
-		ringFilled++
-		totalSamples++
-
-		// Accumulate for SDT (we compress across a larger window than FFT).
-		rawPoints = append(rawPoints, filter.Point{T: s.T, Value: s.Value})
-
-		if ringFilled < fftWindow {
-			continue // window not full yet
-		}
-
-		// ── Window is full — process it ───────────────────────────────────
-		windowDuration := time.Since(windowStart)
-		totalWindows++
-
-		// Stage A: FFT (zero allocation — Processor reuses buffers).
-		// Remove DC offset so gravity (1g) doesn't dominate the spectrum.
-		removeDCInPlace(ringBuf)
-		freqs, power := fftProc.PowerSpectrum(ringBuf)
-		peaks := fft.TopPeaks(power, topFreqs)
-
-		// Stage C: Anomaly detection (uses original values, with DC for RMS accuracy).
-		// We removed DC from ringBuf above, so recompute RMS from rawPoints tail.
-		windowSlice := rawPoints[len(rawPoints)-fftWindow:]
-		origValues := make([]float64, fftWindow) // small, stack-like allocation once/window
-		for i, p := range windowSlice {
-			origValues[i] = p.Value
-		}
-		event := det.IngestWindow(origValues, s.T-float64(fftWindow-1)/sampleRate)
-
-		isAnomaly := det.State()
-		if isAnomaly {
-			anomalyWindows++
-		}
-
-		// Stage B: SDT flush — compress and reset when buffer grows large.
-		// In production this triggers a protobuf send to MQTT.
-		const sdtFlushEvery = 20 // windows (~10 s)
-		if totalWindows%sdtFlushEvery == 0 {
-			compressed := filter.SDT(rawPoints, sdtEpsilon)
-			totalRaw += len(rawPoints)
-			totalSDT += len(compressed)
-			rawPoints = rawPoints[:0] // reset without deallocation
-			logSDTFlush(len(rawPoints)+fftWindow*sdtFlushEvery, len(compressed), totalWindows)
-		}
-
-		// ── Per-window console output ─────────────────────────────────────
-		printWindow(totalWindows, s.T, freqs, power, peaks, isAnomaly,
-			det.BaselineReady(), windowDuration, event)
-
-		// Reset for next window.
-		ringFilled = 0
-		windowStart = time.Now()
-	}
-
-	// Batch mode: flush remaining SDT points.
-	if len(rawPoints) > 0 {
-		compressed := filter.SDT(rawPoints, sdtEpsilon)
-		totalRaw += len(rawPoints)
-		totalSDT += len(compressed)
-	}
-
-	printFinalStats(totalSamples, totalWindows, anomalyWindows, totalRaw, totalSDT)
+var pub *mqttclient.Publisher
+if !*noMQTT {
+cfg := mqttclient.DefaultConfig(*broker, "edge-filter-"+*sensorID)
+cfg.ConnectTimeout = 3 * time.Second
+client, err := mqttclient.Connect(cfg)
+if err != nil {
+fmt.Fprintf(os.Stderr, "MQTT connect failed (%v) — running in console-only mode\n", err)
+} else {
+pub = mqttclient.NewPublisher(client, *sensorID, mqttclient.QoS1)
+fmt.Fprintln(os.Stderr, "MQTT connected ✓")
+defer client.Disconnect()
+}
 }
 
-// removeDCInPlace subtracts the mean from samples in place.
-// O(n), no allocation.
+ringBuf   := make([]float64, fftWindow)
+ringFilled := 0
+rawPoints := make([]filter.Point, 0, fftWindow*20)
+
+fftProc := fft.NewProcessor(fftWindow, sampleRate)
+detCfg  := anomaly.DefaultConfig()
+detCfg.SampleRate      = sampleRate
+detCfg.BaselineWindows = 10
+det := anomaly.NewDetector(detCfg)
+
+reader := sensor.NewReader(os.Stdin)
+
+var (
+totalSamples    int64
+totalWindows    int
+anomalyWindows  int
+totalRaw        int
+totalCompressed int
+lastSDTRatio    float32 = 1.0
+)
+
+sigCh := make(chan os.Signal, 1)
+signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+go func() {
+<-sigCh
+printStats(totalSamples, totalWindows, anomalyWindows, totalRaw, totalCompressed)
+os.Exit(0)
+}()
+
+const sdtFlushEvery = 20
+
+for {
+s, err := reader.Next()
+if err != nil {
+break
+}
+
+ringBuf[ringFilled] = s.Value
+rawPoints = append(rawPoints, filter.Point{T: s.T, Value: s.Value})
+ringFilled++
+totalSamples++
+
+if ringFilled < fftWindow {
+continue
+}
+
+totalWindows++
+windowT := s.T
+
+removeDCInPlace(ringBuf)
+freqs, power := fftProc.PowerSpectrum(ringBuf)
+peaks := fft.TopPeaks(power, topFreqs)
+
+tail := rawPoints[len(rawPoints)-fftWindow:]
+origVals := make([]float64, fftWindow)
+for i, p := range tail {
+origVals[i] = p.Value
+}
+windowStartT := windowT - float64(fftWindow-1)/sampleRate
+event := det.IngestWindow(origVals, windowStartT)
+isAnomaly := det.State()
+if isAnomaly {
+anomalyWindows++
+}
+windowRMS := float32(rmsOf(origVals))
+
+if totalWindows%sdtFlushEvery == 0 {
+compressed := filter.SDT(rawPoints, sdtEpsilon)
+lastSDTRatio = float32(filter.CompressionRatio(len(rawPoints), len(compressed)))
+totalRaw += len(rawPoints)
+totalCompressed += len(compressed)
+
+if pub != nil {
+tsMs := time.Now().UnixMilli()
+for _, pt := range compressed {
+if err := pub.PublishTelemetry(
+tsMs,
+float32(pt.Value),
+windowRMS,
+lastSDTRatio,
+isAnomaly,
+); err != nil {
+fmt.Fprintf(os.Stderr, "publish telemetry: %v\n", err)
+}
+}
+}
+rawPoints = rawPoints[:0]
+fmt.Fprintf(os.Stderr, "  → SDT flush @win%-4d  ratio=%.1f×  mqtt=%v\n",
+totalWindows, lastSDTRatio, pub != nil)
+}
+
+if event != nil && pub != nil {
+eventType := "clear"
+if event.Anomaly {
+eventType = "onset"
+}
+if err := pub.PublishAnomaly(
+time.Now(),
+eventType,
+float32(event.RMS),
+float32(event.ZScore),
+float32(event.BaselineMean),
+float32(event.BaselineStdDev),
+); err != nil {
+fmt.Fprintf(os.Stderr, "publish anomaly: %v\n", err)
+}
+}
+
+printWindow(totalWindows, windowT, freqs, power, peaks,
+isAnomaly, det.BaselineReady(), event)
+
+ringFilled = 0
+}
+
+if len(rawPoints) > 0 {
+compressed := filter.SDT(rawPoints, sdtEpsilon)
+lastSDTRatio = float32(filter.CompressionRatio(len(rawPoints), len(compressed)))
+totalRaw += len(rawPoints)
+totalCompressed += len(compressed)
+}
+
+printStats(totalSamples, totalWindows, anomalyWindows, totalRaw, totalCompressed)
+}
+
 func removeDCInPlace(xs []float64) {
-	mean := 0.0
-	for _, x := range xs {
-		mean += x
-	}
-	mean /= float64(len(xs))
-	for i := range xs {
-		xs[i] -= mean
-	}
+mean := 0.0
+for _, x := range xs {
+mean += x
+}
+mean /= float64(len(xs))
+for i := range xs {
+xs[i] -= mean
+}
+}
+
+func rmsOf(xs []float64) float64 {
+sum := 0.0
+for _, x := range xs {
+sum += x * x
+}
+if len(xs) == 0 {
+return 0
+}
+s := sum / float64(len(xs))
+if s <= 0 {
+return 0
+}
+z := s
+for i := 0; i < 10; i++ {
+z = (z + s/z) / 2
+}
+return z
 }
 
 func printWindow(
-	n int, t float64,
-	freqs, power []float64, peaks []int,
-	isAnomaly, baselineReady bool,
-	dur time.Duration,
-	event *anomaly.Event,
+n int, t float64,
+freqs, power []float64, peaks []int,
+isAnomaly, baselineReady bool,
+event *anomaly.Event,
 ) {
-	status := "  OK  "
-	if !baselineReady {
-		status = " WARM "
-	} else if isAnomaly {
-		status = " ⚠️ AN "
-	}
-
-	// Top-2 non-DC frequencies for compact display.
-	f1, f2 := 0.0, 0.0
-	p1, p2 := 0.0, 0.0
-	nonDC := 0
-	for _, idx := range peaks {
-		if freqs[idx] < 5.0 {
-			continue
-		}
-		if nonDC == 0 {
-			f1, p1 = freqs[idx], power[idx]
-		} else if nonDC == 1 {
-			f2, p2 = freqs[idx], power[idx]
-		}
-		nonDC++
-		if nonDC == 2 {
-			break
-		}
-	}
-
-	fmt.Printf("win %4d  t=%7.3fs  [%s]  fft: %6.1fHz(%.1e) %6.1fHz(%.1e)",
-		n, t, status, f1, p1, f2, p2)
-
-	if event != nil {
-		if event.Anomaly {
-			fmt.Printf("  ⚡ ANOMALY z=%+.1fσ rms=%.4f", event.ZScore, event.RMS)
-		} else {
-			fmt.Printf("  ✅ CLEAR  z=%+.1fσ rms=%.4f", event.ZScore, event.RMS)
-		}
-	}
-	fmt.Printf("  [%v]\n", dur.Round(time.Microsecond))
+status := "  OK  "
+switch {
+case !baselineReady:
+status = " WARM "
+case isAnomaly:
+status = " ⚠️ AN "
 }
 
-func logSDTFlush(raw, compressed, window int) {
-	ratio := filter.CompressionRatio(raw, compressed)
-	fmt.Fprintf(os.Stderr, "  → SDT flush @win%-4d  %d → %d pts  %.1f×\n",
-		window, raw, compressed, ratio)
+f1, f2 := 0.0, 0.0
+p1, p2 := 0.0, 0.0
+nonDC := 0
+for _, idx := range peaks {
+if freqs[idx] < 5.0 {
+continue
+}
+if nonDC == 0 {
+f1, p1 = freqs[idx], power[idx]
+} else if nonDC == 1 {
+f2, p2 = freqs[idx], power[idx]
+}
+nonDC++
+if nonDC == 2 {
+break
+}
 }
 
-func printFinalStats(samples int64, windows, anomalyWins, raw, sdt int) {
-	fmt.Println("\n" + strings.Repeat("─", 54))
-	fmt.Printf("  Total samples   : %d (%.1f s)\n", samples, float64(samples)/sampleRate)
-	fmt.Printf("  Windows         : %d × %d samples\n", windows, fftWindow)
-	if windows > 0 {
-		fmt.Printf("  Anomalous       : %d / %d windows (%.0f%%)\n",
-			anomalyWins, windows, 100*float64(anomalyWins)/float64(windows))
-	}
-	if raw > 0 {
-		fmt.Printf("  SDT compression : %d → %d pts  %.1f×\n",
-			raw, sdt, filter.CompressionRatio(raw, sdt))
-	}
-	fmt.Println(strings.Repeat("─", 54))
+fmt.Printf("win %4d  t=%7.3fs  [%s]  fft: %6.1fHz(%.1e) %6.1fHz(%.1e)",
+n, t, status, f1, p1, f2, p2)
+
+if event != nil {
+if event.Anomaly {
+fmt.Printf("  ⚡ ANOMALY z=%+.1fσ rms=%.4f", event.ZScore, event.RMS)
+} else {
+fmt.Printf("  ✅ CLEAR  z=%+.1fσ rms=%.4f", event.ZScore, event.RMS)
+}
+}
+fmt.Println()
+}
+
+func printStats(samples int64, windows, anomalyWins, raw, compressed int) {
+sep := strings.Repeat("─", 54)
+fmt.Println("\n" + sep)
+fmt.Printf("  Total samples   : %d (%.1f s)\n", samples, float64(samples)/sampleRate)
+fmt.Printf("  Windows         : %d × %d samples\n", windows, fftWindow)
+if windows > 0 {
+fmt.Printf("  Anomalous       : %d / %d (%.0f%%)\n",
+anomalyWins, windows, 100*float64(anomalyWins)/float64(windows))
+}
+if raw > 0 {
+fmt.Printf("  SDT compression : %d → %d pts  %.1f×\n",
+raw, compressed, filter.CompressionRatio(raw, compressed))
+}
+fmt.Println(sep)
 }

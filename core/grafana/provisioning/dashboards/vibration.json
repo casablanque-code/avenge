@@ -4,25 +4,47 @@
   "schemaVersion": 39,
   "version": 1,
   "refresh": "5s",
-  "time": { "from": "now-15m", "to": "now" },
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
   "timezone": "browser",
-  "tags": ["iot", "vibration"],
+  "tags": [
+    "iot",
+    "vibration"
+  ],
   "panels": [
     {
       "id": 1,
       "title": "RMS Vibration (per minute)",
       "type": "timeseries",
-      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 9 },
-      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse_iot" },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 9
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse_iot"
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "accG",
-          "color": { "mode": "palette-classic" },
+          "color": {
+            "mode": "palette-classic"
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "red",   "value": 1.4 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1.4
+              }
             ]
           },
           "custom": {
@@ -33,13 +55,18 @@
         }
       },
       "options": {
-        "tooltip": { "mode": "multi" },
-        "legend": { "displayMode": "list", "placement": "bottom" }
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
       },
       "targets": [
         {
           "rawSql": "SELECT ts_bucket AS time, sensor_id, rms_avg FROM iot.telemetry_1m WHERE $__timeFilter(ts_bucket) ORDER BY ts_bucket",
-          "format": "time_series"
+          "format": 0
         }
       ]
     },
@@ -47,18 +74,31 @@
       "id": 2,
       "title": "Raw SDT Points",
       "type": "timeseries",
-      "gridPos": { "x": 0, "y": 9, "w": 16, "h": 8 },
-      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse_iot" },
+      "gridPos": {
+        "x": 0,
+        "y": 9,
+        "w": 16,
+        "h": 8
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse_iot"
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "accG",
-          "custom": { "lineWidth": 1, "fillOpacity": 0, "drawStyle": "points", "pointSize": 3 }
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "drawStyle": "points",
+            "pointSize": 3
+          }
         }
       },
       "targets": [
         {
           "rawSql": "SELECT ts AS time, sensor_id, value FROM iot.telemetry WHERE $__timeFilter(ts) ORDER BY ts LIMIT 5000",
-          "format": "time_series"
+          "format": 0
         }
       ]
     },
@@ -66,12 +106,23 @@
       "id": 3,
       "title": "Anomaly Events",
       "type": "table",
-      "gridPos": { "x": 16, "y": 9, "w": 8, "h": 8 },
-      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse_iot" },
+      "gridPos": {
+        "x": 16,
+        "y": 9,
+        "w": 8,
+        "h": 8
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse_iot"
+      },
       "fieldConfig": {
         "overrides": [
           {
-            "matcher": { "id": "byName", "options": "event_type" },
+            "matcher": {
+              "id": "byName",
+              "options": "event_type"
+            },
             "properties": [
               {
                 "id": "custom.displayMode",
@@ -80,8 +131,24 @@
               {
                 "id": "mappings",
                 "value": [
-                  { "type": "value", "options": { "onset": { "text": "⚠️ ANOMALY", "color": "red"   } } },
-                  { "type": "value", "options": { "clear": { "text": "✅ CLEAR",   "color": "green" } } }
+                  {
+                    "type": "value",
+                    "options": {
+                      "onset": {
+                        "text": "⚠️ ANOMALY",
+                        "color": "red"
+                      }
+                    }
+                  },
+                  {
+                    "type": "value",
+                    "options": {
+                      "clear": {
+                        "text": "✅ CLEAR",
+                        "color": "green"
+                      }
+                    }
+                  }
                 ]
               }
             ]
@@ -91,7 +158,7 @@
       "targets": [
         {
           "rawSql": "SELECT ts AS time, sensor_id, event_type, round(rms,4) AS rms, round(z_score,2) AS z_score FROM iot.anomaly_events WHERE $__timeFilter(ts) ORDER BY ts DESC LIMIT 50",
-          "format": "table"
+          "format": 1
         }
       ]
     },
@@ -99,18 +166,37 @@
       "id": 4,
       "title": "SDT Compression Ratio",
       "type": "gauge",
-      "gridPos": { "x": 0, "y": 17, "w": 6, "h": 5 },
-      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse_iot" },
+      "gridPos": {
+        "x": 0,
+        "y": 17,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse_iot"
+      },
       "fieldConfig": {
         "defaults": {
-          "min": 1, "max": 50, "unit": "short",
+          "min": 1,
+          "max": 50,
+          "unit": "short",
           "displayName": "Ratio ×",
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "red",    "value": null },
-              { "color": "yellow", "value": 5    },
-              { "color": "green",  "value": 20   }
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 5
+              },
+              {
+                "color": "green",
+                "value": 20
+              }
             ]
           }
         }
@@ -118,7 +204,7 @@
       "targets": [
         {
           "rawSql": "SELECT now() AS time, avg(sdt_ratio) AS value FROM iot.telemetry WHERE ts > now() - INTERVAL 5 MINUTE",
-          "format": "time_series"
+          "format": 0
         }
       ]
     },
@@ -126,17 +212,34 @@
       "id": 5,
       "title": "Anomaly Rate (last 5 min)",
       "type": "stat",
-      "gridPos": { "x": 6, "y": 17, "w": 6, "h": 5 },
-      "datasource": { "type": "grafana-clickhouse-datasource", "uid": "clickhouse_iot" },
+      "gridPos": {
+        "x": 6,
+        "y": 17,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse_iot"
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "percentunit",
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green",  "value": null },
-              { "color": "yellow", "value": 0.05 },
-              { "color": "red",    "value": 0.2  }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.05
+              },
+              {
+                "color": "red",
+                "value": 0.2
+              }
             ]
           }
         }
@@ -144,7 +247,7 @@
       "targets": [
         {
           "rawSql": "SELECT now() AS time, countIf(is_anomaly=1)/count() AS value FROM iot.telemetry WHERE ts > now() - INTERVAL 5 MINUTE",
-          "format": "time_series"
+          "format": 0
         }
       ]
     }
