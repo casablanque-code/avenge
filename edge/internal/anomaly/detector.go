@@ -150,6 +150,9 @@ func (d *Detector) IngestWindow(samples []float64, windowStartT float64) *Event 
 // State returns the current anomaly state.
 func (d *Detector) State() bool { return d.lastAnomalyState }
 
+// Severity returns the current severity level.
+func (d *Detector) Severity() Severity { return d.lastSeverity }
+
 // BaselineReady reports whether warmup is complete.
 func (d *Detector) BaselineReady() bool { return d.baselineReady }
 
