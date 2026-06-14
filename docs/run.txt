@@ -1,0 +1,15 @@
+cd core/
+docker compose up -d
+
+# Health check:
+docker compose ps
+# Grafana:    http://localhost:3000  (admin/admin)
+# ClickHouse: http://localhost:8123/play
+
+# Normal mode — data goes to ClickHouse
+python3 firmware-sim/signal_generator.py stream \
+  | ./edge/edge-filter --broker localhost:1883 --sensor-id bearing_01
+
+# Crash mode — after 10 sec appears ⚡ ANOMALY, in Grafana graphic blows
+python3 firmware-sim/signal_generator.py stream --anomaly-after 10 \
+  | ./edge/edge-filter --broker localhost:1883 --sensor-id bearing_01
