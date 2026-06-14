@@ -24,6 +24,7 @@ type TelemetryMessage struct {
 	Value     float32 `json:"value"`
 	WindowRMS float32 `json:"window_rms"`
 	IsAnomaly int     `json:"is_anomaly"` // 0 or 1
+	Severity  string  `json:"severity"`   // "normal" | "warning" | "critical"
 	SDTRatio  float32 `json:"sdt_ratio"`
 }
 
@@ -32,6 +33,7 @@ type AnomalyMessage struct {
 	TsMs           int64   `json:"ts_ms"`
 	SensorID       string  `json:"sensor_id"`
 	EventType      string  `json:"event_type"` // "onset" or "clear"
+	Severity       string  `json:"severity"`   // "normal" | "warning" | "critical"
 	RMS            float32 `json:"rms"`
 	ZScore         float32 `json:"z_score"`
 	BaselineMean   float32 `json:"baseline_mean"`
@@ -50,13 +52,12 @@ func NewPublisher(client *Client, sensorID string, qos byte) *Publisher {
 	return &Publisher{client: client, sensorID: sensorID, qos: qos}
 }
 
-// PublishTelemetry sends a batch of SDT-compressed points.
-// Each point is sent as a separate MQTT message so Telegraf can parse them
-// individually without batching logic on the subscriber side.
+// PublishTelemetry sends one summary message for the most recent SDT flush.
 func (p *Publisher) PublishTelemetry(
 	tsMs int64,
 	value, windowRMS, sdtRatio float32,
 	isAnomaly bool,
+	severity string,
 ) error {
 	anomalyInt := 0
 	if isAnomaly {
@@ -68,6 +69,7 @@ func (p *Publisher) PublishTelemetry(
 		Value:     value,
 		WindowRMS: windowRMS,
 		IsAnomaly: anomalyInt,
+		Severity:  severity,
 		SDTRatio:  sdtRatio,
 	}
 	payload, err := json.Marshal(msg)
@@ -83,12 +85,14 @@ func (p *Publisher) PublishTelemetry(
 func (p *Publisher) PublishAnomaly(
 	t time.Time,
 	eventType string,
+	severity string,
 	rms, zScore, baselineMean, baselineStddev float32,
 ) error {
 	msg := AnomalyMessage{
 		TsMs:           t.UnixMilli(),
 		SensorID:       p.sensorID,
 		EventType:      eventType,
+		Severity:       severity,
 		RMS:            rms,
 		ZScore:         zScore,
 		BaselineMean:   baselineMean,

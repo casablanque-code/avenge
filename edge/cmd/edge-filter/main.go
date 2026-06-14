@@ -142,6 +142,7 @@ func main() {
 		windowStartT := windowT - float64(fftWindow-1)/sampleRate
 		event := det.IngestWindow(origVals, windowStartT)
 		isAnomaly := det.State()
+		severity := string(det.Severity())
 		if isAnomaly {
 			anomalyWindows++
 		}
@@ -178,6 +179,7 @@ func main() {
 					windowRMS,
 					lastSDTRatio,
 					isAnomaly,
+					severity,
 				); err != nil {
 					fmt.Fprintf(os.Stderr, "publish telemetry: %v\n", err)
 				}
@@ -196,6 +198,7 @@ func main() {
 			if err := pub.PublishAnomaly(
 				time.Now(),
 				eventType,
+				string(event.Severity),
 				float32(event.RMS),
 				float32(event.ZScore),
 				float32(event.BaselineMean),
@@ -207,7 +210,7 @@ func main() {
 
 		// ── Console output ────────────────────────────────────────────────
 		printWindow(totalWindows, windowT, freqs, power, peaks,
-			isAnomaly, det.BaselineReady(), event)
+			det.Severity(), det.BaselineReady(), event)
 
 		ringFilled = 0
 	}
@@ -263,15 +266,17 @@ func rmsOf(xs []float64) float64 {
 func printWindow(
 	n int, t float64,
 	freqs, power []float64, peaks []int,
-	isAnomaly, baselineReady bool,
+	severity anomaly.Severity, baselineReady bool,
 	event *anomaly.Event,
 ) {
 	status := "  OK  "
 	switch {
 	case !baselineReady:
 		status = " WARM "
-	case isAnomaly:
-		status = " ⚠️ AN "
+	case severity == anomaly.SeverityCritical:
+		status = " CRIT "
+	case severity == anomaly.SeverityWarning:
+		status = " WARN "
 	}
 
 	f1, f2 := 0.0, 0.0
@@ -297,9 +302,9 @@ func printWindow(
 
 	if event != nil {
 		if event.Anomaly {
-			fmt.Printf("  ⚡ ANOMALY z=%+.1fσ rms=%.4f", event.ZScore, event.RMS)
+			fmt.Printf("  ⚡ ANOMALY [%s] z=%+.1fσ rms=%.4f", event.Severity, event.ZScore, event.RMS)
 		} else {
-			fmt.Printf("  ✅ CLEAR  z=%+.1fσ rms=%.4f", event.ZScore, event.RMS)
+			fmt.Printf("  ✅ CLEAR  [%s] z=%+.1fσ rms=%.4f", event.Severity, event.ZScore, event.RMS)
 		}
 	}
 	fmt.Println()
