@@ -81,10 +81,19 @@ func main() {
 	rawPoints  := make([]filter.Point, 0, fftWindow*20) // SDT accumulator
 
 	fftProc := fft.NewProcessor(fftWindow, sampleRate)
-	detCfg  := anomaly.DefaultConfig()
+
+	detCfg := anomaly.DefaultConfig()
 	detCfg.SampleRate      = sampleRate
 	detCfg.BaselineWindows = 10
 	det := anomaly.NewDetector(detCfg)
+
+	// Band detector runs in parallel with the scalar detector.
+	// It is more sensitive to narrow-band faults (e.g. BPFO at 312.5 Hz)
+	// and fires independently — either detector can raise an alert.
+	bandDet := anomaly.NewBandDetector(
+		anomaly.DefaultBands(sampleRate),
+		anomaly.DefaultBandConfig(),
+	)
 
 	reader := sensor.NewReader(os.Stdin)
 
@@ -140,6 +149,8 @@ func main() {
 			origVals[i] = p.Value
 		}
 		windowStartT := windowT - float64(fftWindow-1)/sampleRate
+
+		// Scalar detector (RMS + Z-score).
 		event := det.IngestWindow(origVals, windowStartT)
 		isAnomaly := det.State()
 		severity := string(det.Severity())
@@ -147,6 +158,11 @@ func main() {
 			anomalyWindows++
 		}
 		windowRMS := float32(rmsOf(origVals))
+
+		// Band detector (per-band FFT RMS + Z-score).
+		// Runs on the DC-removed power spectrum already computed for display.
+		// More sensitive to narrow-band faults than the scalar detector.
+		bandResult := bandDet.IngestSpectrum(freqs, power)
 
 		// Stage B: SDT flush every sdtFlushEvery windows.
 		if totalWindows%sdtFlushEvery == 0 {
@@ -211,6 +227,17 @@ func main() {
 		// ── Console output ────────────────────────────────────────────────
 		printWindow(totalWindows, windowT, freqs, power, peaks,
 			det.Severity(), det.BaselineReady(), event)
+
+		// Print band breakdown when fault band fires or periodically for debug.
+		if bandResult.FaultBandAnomaly {
+			fmt.Printf("         [band] ⚡ fault-band ANOMALY  maxZ=%.1fσ  band=%s  severity=%s\n",
+				bandResult.MaxZScore, bandResult.MaxZBand, bandResult.OverallSeverity)
+		} else if bandDet.Ready() && bandResult.MaxZScore > 2.0 {
+			// Print band warning even before crossing EnterThreshold —
+			// useful to observe fault energy rising before scalar detector fires.
+			fmt.Printf("         [band]    fault-band rising   maxZ=%.1fσ  band=%s\n",
+				bandResult.MaxZScore, bandResult.MaxZBand)
+		}
 
 		ringFilled = 0
 	}
