@@ -2,7 +2,10 @@
 // detector for vibration signals.
 package anomaly
 
-import "math"
+import (
+	"math"
+	"time"
+)
 
 // Config holds detector parameters.
 type Config struct {
@@ -41,13 +44,21 @@ const (
 	SeverityCritical Severity = "critical"
 )
 
-// Event is emitted when the detector changes state.
+// Event is emitted when the detector changes state or severity.
+// It is self-contained — carries everything needed for storage,
+// correlation, replay, or alert routing without additional context.
 type Event struct {
-	T              float64
-	Anomaly        bool
-	Severity       Severity
-	RMS            float64
-	ZScore         float64
+	// SensorID identifies which sensor produced this event.
+	// Set by the caller (SensorWorker) before storing or publishing.
+	SensorID string
+	// Timestamp is the wall-clock time of the window that triggered the event.
+	Timestamp time.Time
+	// T is the sensor-domain time in seconds (from the sample stream).
+	T        float64
+	Anomaly  bool
+	Severity Severity
+	RMS      float64
+	ZScore   float64
 	BaselineMean   float64
 	BaselineStdDev float64
 }
@@ -137,6 +148,8 @@ func (d *Detector) IngestWindow(samples []float64, windowStartT float64) *Event 
 	d.lastAnomalyState = isAnomaly
 	d.lastSeverity = severity
 	return &Event{
+		SensorID:       "", // filled by SensorWorker
+		Timestamp:      time.Now(),
 		T:              windowStartT,
 		Anomaly:        isAnomaly,
 		Severity:       severity,

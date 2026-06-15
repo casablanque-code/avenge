@@ -63,14 +63,16 @@ func DefaultConfig(broker, clientID string) Config {
 type Client struct {
 	cfg    Config
 	conn   net.Conn
-	mu     sync.Mutex   // serialises writes to conn
+	mu     sync.Mutex    // serialises writes to conn
 	pktID  atomic.Uint32 // monotonic packet ID counter for QoS1
 
 	// pending maps packetID → channel that receives the PUBACK.
 	pendingMu sync.Mutex
 	pending   map[uint16]chan struct{}
 
-	done chan struct{}
+	done         chan struct{}
+	disconnected chan struct{} // closed once by readLoop on connection loss
+	discOnce     sync.Once
 }
 
 // Connect establishes a TCP connection and performs the MQTT CONNECT handshake.
@@ -81,10 +83,11 @@ func Connect(cfg Config) (*Client, error) {
 	}
 
 	c := &Client{
-		cfg:     cfg,
-		conn:    conn,
-		pending: make(map[uint16]chan struct{}),
-		done:    make(chan struct{}),
+		cfg:          cfg,
+		conn:         conn,
+		pending:      make(map[uint16]chan struct{}),
+		done:         make(chan struct{}),
+		disconnected: make(chan struct{}),
 	}
 
 	if err := conn.SetDeadline(time.Now().Add(cfg.ConnectTimeout)); err != nil {
@@ -243,6 +246,8 @@ func (c *Client) sendPingReq() error {
 
 // readLoop handles incoming packets (PUBACK, PINGRESP) from the broker.
 func (c *Client) readLoop() {
+	defer c.discOnce.Do(func() { close(c.disconnected) })
+
 	for {
 		select {
 		case <-c.done:
@@ -250,11 +255,23 @@ func (c *Client) readLoop() {
 		default:
 		}
 
+		// Set a short read deadline so we can check c.done periodically
+		// and detect broker disconnects promptly (don't wait forever on ReadFull).
+		_ = c.conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+
 		// Read fixed header byte.
 		header := make([]byte, 1)
 		if _, err := io.ReadFull(c.conn, header); err != nil {
-			return
+			// Timeout is expected (we use it to poll c.done) — re-loop.
+			// Any other error (EOF, broken pipe) means connection is gone.
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				continue
+			}
+			return // triggers defer → close(disconnected)
 		}
+
+		// Clear deadline for the rest of the packet read.
+		_ = c.conn.SetReadDeadline(time.Time{})
 		pktType := header[0] & 0xF0
 
 		// Decode remaining length (variable-length encoding).
@@ -355,4 +372,10 @@ func decodeRemainingLength(r io.Reader) (int, error) {
 		}
 	}
 	return value, nil
+}
+
+// Disconnected returns a channel that is closed when the connection is lost.
+// Use this to trigger reconnect logic in ResilientClient.
+func (c *Client) Disconnected() <-chan struct{} {
+	return c.disconnected
 }
