@@ -271,7 +271,7 @@ The **Vibration Monitor** dashboard is auto-provisioned on first startup — no 
 - [x] Stateful Z-score anomaly detection with anti-adaptation interlock
 - [x] MQTT 3.1.1 client (stdlib only, QoS 0/1)
 - [x] Auto-provisioned Grafana dashboard
-- [ ] Frequency band-specific anomaly filtering (sub-band partitioning)
+- [x] Frequency band-specific anomaly filtering (sub-band partitioning)
 - [ ] Multi-sensor orchestration and cross-axis correlation
 - [ ] Outbound alert webhooks (Slack, PagerDuty)
 - [ ] Edge REST API for runtime configuration
