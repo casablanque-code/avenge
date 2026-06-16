@@ -121,7 +121,7 @@ type SensorWorker struct {
 	bandDet *anomaly.BandDetector
 	sdt     []filter.Point
 
-	ringBuf   []float64
+	ringBuf    []float64
 	ringFilled int
 
 	totalWindows    int
@@ -142,9 +142,9 @@ func newSensorWorker(cfg SensorConfig) *SensorWorker {
 	}
 
 	bandCfg := anomaly.DefaultBandConfig()
-	bandCfg.WarmupWindows  = cfg.BaselineWindows
+	bandCfg.WarmupWindows = cfg.BaselineWindows
 	bandCfg.EnterThreshold = cfg.EnterThreshold + 0.5 // slightly stricter for bands
-	bandCfg.ExitThreshold  = cfg.ExitThreshold
+	bandCfg.ExitThreshold = cfg.ExitThreshold
 
 	return &SensorWorker{
 		cfg:     cfg,

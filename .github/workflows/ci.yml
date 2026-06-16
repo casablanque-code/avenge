@@ -1,0 +1,50 @@
+name: CI
+
+# Only runs when code that actually affects build/test outcome changes.
+# README/docs-only pushes won't trigger this — see paths-ignore below.
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+
+jobs:
+  test:
+    name: Build & Test (edge)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: edge
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          # No go.sum — the project has zero external dependencies
+          # (see serial_reader.go: raw syscalls instead of go.bug.st/serial).
+          cache: false
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: gofmt check
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "The following files are not gofmt-formatted:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Build
+        run: go build ./...
+
+      - name: Test
+        run: go test ./... -v -count=1

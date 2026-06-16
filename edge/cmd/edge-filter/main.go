@@ -45,9 +45,9 @@ import (
 )
 
 func main() {
-	broker     := flag.String("broker",    "localhost:1883", "MQTT broker address")
-	sensorID   := flag.String("sensor-id", "bearing_01",    "Sensor identifier")
-	noMQTT     := flag.Bool("no-mqtt",     false,           "Disable MQTT output")
+	broker := flag.String("broker", "localhost:1883", "MQTT broker address")
+	sensorID := flag.String("sensor-id", "bearing_01", "Sensor identifier")
+	noMQTT := flag.Bool("no-mqtt", false, "Disable MQTT output")
 	flag.Parse()
 
 	fmt.Fprintf(os.Stderr, "edge-filter  sensor=%s  broker=%s\n", *sensorID, *broker)
@@ -124,9 +124,9 @@ func main() {
 
 	// ── Stats ──────────────────────────────────────────────────────────
 	var (
-		totalSamples    int64
-		totalWindows    int
-		anomalyWindows  int
+		totalSamples   int64
+		totalWindows   int
+		anomalyWindows int
 	)
 
 	// ── Event consumer goroutine ───────────────────────────────────────

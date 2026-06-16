@@ -65,8 +65,9 @@ func FFT(x []complex128) {
 // samples at the given sampleRate (Hz).
 //
 // It returns:
-//   freqs  — frequency bin centres in Hz (length N/2+1)
-//   power  — power in each bin (magnitude² / N²)
+//
+//	freqs  — frequency bin centres in Hz (length N/2+1)
+//	power  — power in each bin (magnitude² / N²)
 //
 // samples need not be a power of two; they will be zero-padded.
 func PowerSpectrum(samples []float64, sampleRate int) (freqs, power []float64) {
@@ -94,7 +95,10 @@ func PowerSpectrum(samples []float64, sampleRate int) (freqs, power []float64) {
 // TopPeaks returns the indices of the top-n highest power bins,
 // sorted descending by power. Useful for logging dominant frequencies.
 func TopPeaks(power []float64, n int) []int {
-	type kv struct{ idx int; val float64 }
+	type kv struct {
+		idx int
+		val float64
+	}
 	ranked := make([]kv, len(power))
 	for i, v := range power {
 		ranked[i] = kv{i, v}

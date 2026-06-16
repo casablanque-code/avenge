@@ -35,7 +35,7 @@ type SerialReader struct {
 	startTime time.Time
 
 	// Internal byte buffer for packet reassembly.
-	buf [256]byte
+	buf    [256]byte
 	bufLen int
 }
 

@@ -28,18 +28,18 @@ import (
 
 // FreqBand defines a named frequency range.
 type FreqBand struct {
-	Name   string
-	LoHz   float64
-	HiHz   float64
+	Name string
+	LoHz float64
+	HiHz float64
 }
 
 // DefaultBands returns the four standard bands for a 1 kHz sensor
 // monitoring a 50 Hz shaft with a bearing fault zone around 312 Hz.
 func DefaultBands(sampleRate int) []FreqBand {
 	return []FreqBand{
-		{"shaft",   0,   50},
-		{"harmonic", 50,  150},
-		{"fault",   150, 400}, // BPFO 312.5 Hz lives here
+		{"shaft", 0, 50},
+		{"harmonic", 50, 150},
+		{"fault", 150, 400}, // BPFO 312.5 Hz lives here
 		{"hf_noise", 400, float64(sampleRate / 2)},
 	}
 }

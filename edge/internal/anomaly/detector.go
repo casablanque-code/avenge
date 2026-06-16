@@ -54,11 +54,11 @@ type Event struct {
 	// Timestamp is the wall-clock time of the window that triggered the event.
 	Timestamp time.Time
 	// T is the sensor-domain time in seconds (from the sample stream).
-	T        float64
-	Anomaly  bool
-	Severity Severity
-	RMS      float64
-	ZScore   float64
+	T              float64
+	Anomaly        bool
+	Severity       Severity
+	RMS            float64
+	ZScore         float64
 	BaselineMean   float64
 	BaselineStdDev float64
 }

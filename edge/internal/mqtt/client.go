@@ -61,10 +61,10 @@ func DefaultConfig(broker, clientID string) Config {
 
 // Client is a connected MQTT client.
 type Client struct {
-	cfg    Config
-	conn   net.Conn
-	mu     sync.Mutex    // serialises writes to conn
-	pktID  atomic.Uint32 // monotonic packet ID counter for QoS1
+	cfg   Config
+	conn  net.Conn
+	mu    sync.Mutex    // serialises writes to conn
+	pktID atomic.Uint32 // monotonic packet ID counter for QoS1
 
 	// pending maps packetID → channel that receives the PUBACK.
 	pendingMu sync.Mutex
@@ -179,8 +179,8 @@ func (c *Client) sendConnect() error {
 	// Variable header: protocol name + level + connect flags + keep-alive.
 	varHeader := []byte{
 		0x00, 0x04, 'M', 'Q', 'T', 'T', // protocol name
-		0x04,       // protocol level 3.1.1
-		0x02,       // connect flags: clean session
+		0x04, // protocol level 3.1.1
+		0x02, // connect flags: clean session
 		byte(c.cfg.KeepAlive >> 8),
 		byte(c.cfg.KeepAlive),
 	}

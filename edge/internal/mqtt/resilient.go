@@ -29,11 +29,11 @@ type publishRequest struct {
 // ResilientClient is a reconnecting MQTT client with a buffered publish queue.
 // It satisfies the same Publish / Disconnect interface as Client.
 type ResilientClient struct {
-	cfg      Config
-	buf      chan publishRequest
-	stopCh   chan struct{}
-	stopped  chan struct{}
-	wg       sync.WaitGroup
+	cfg     Config
+	buf     chan publishRequest
+	stopCh  chan struct{}
+	stopped chan struct{}
+	wg      sync.WaitGroup
 
 	// Stats — read with atomic, written by the publish goroutine.
 	dropped    atomic.Int64

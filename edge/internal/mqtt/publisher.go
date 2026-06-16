@@ -4,8 +4,9 @@
 // and provides a Publisher that routes messages to the correct topics.
 //
 // Topic layout:
-//   sm/telemetry/<sensor_id>  — SDT-compressed vibration points (frequent)
-//   sm/anomaly/<sensor_id>    — anomaly state transitions (rare)
+//
+//	sm/telemetry/<sensor_id>  — SDT-compressed vibration points (frequent)
+//	sm/anomaly/<sensor_id>    — anomaly state transitions (rare)
 package mqtt
 
 import (

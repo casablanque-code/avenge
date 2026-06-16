@@ -1,7 +1,8 @@
 // Package sensor reads vibration samples from an io.Reader.
 //
 // Each line must be a JSON object with fields:
-//   {"t": 0.001, "value": 1.234, "anomaly": false}
+//
+//	{"t": 0.001, "value": 1.234, "anomaly": false}
 //
 // In production this will be replaced by a serial/SPI reader
 // talking to the ESP32 firmware. The interface stays identical.
@@ -23,8 +24,8 @@ type SampleSource interface {
 
 // Sample is one ADC reading from the vibration sensor.
 type Sample struct {
-	T        float64 `json:"t"`
-	Value    float64 `json:"value"`
+	T     float64 `json:"t"`
+	Value float64 `json:"value"`
 	// GroundTruth is set by the Python generator for testing only.
 	// Real hardware never sends this field.
 	GroundTruth bool `json:"anomaly"`
