@@ -64,7 +64,7 @@ avenge/
 │   ├── .env.example
 │   └── internal/
 │       ├── sensor/              # SampleSource: stdin/JSONL reader + SerialReader (USB/RS-485)
-|	|-- envfile/		 # envfile loader
+│       ├── envfile/              # Minimal .env loader (no deps), shell env always wins
 │       ├── fft/                 # Cooley-Tukey FFT + zero-alloc processor
 │       ├── filter/               # Swinging Door Trending compression
 │       ├── anomaly/             # RMS + Z-score stateful detector, band-specific filtering
@@ -110,6 +110,14 @@ GRAFANA_ADMIN_PASSWORD=changeme
 
 Switching from local dev (everything on one laptop) to a real deployment (edge device + separate server) is a `.env` edit, not a code or rebuild change.
 
+**`core/.env`** is read by Docker Compose only — values reach containers via `environment:` blocks in `core/docker-compose.yml`. Your shell does not see them automatically; commands that need `$CLICKHOUSE_PASSWORD` directly (step 2 below) require an explicit `export` first.
+
+**`edge/.env`** is read two ways, and both stay consistent:
+- Inside a container, Docker Compose passes it via `env_file:`.
+- Run directly (`./edge/edge-filter`, no Docker), the binary loads `edge/.env` itself on startup — no `export` needed.
+
+Priority, highest to lowest: CLI flag (`--broker`) → shell-exported env var → `edge/.env` → built-in default (`localhost:1883`). A value already set in the shell is never overwritten by the file.
+
 ---
 
 ## Running Locally
@@ -124,19 +132,30 @@ docker compose ps   # wait for clickhouse + mosquitto + grafana healthy
 
 ### 2. ClickHouse schema (first run only)
 
-ClickHouse 24.3-alpine has a known issue where multi-statement `docker-entrypoint-initdb.d` scripts cause a double-process startup. Schema is applied manually:
+ClickHouse 24.3-alpine has a known issue where multi-statement `docker-entrypoint-initdb.d` scripts cause a double-process startup. Schema is applied manually. The password is read directly from `core/.env` via command substitution — this avoids `export`, which would otherwise persist in your shell session and silently override `.env` values in later `docker compose` commands:
 
 ```bash
+# run from inside core/
 docker exec sm_clickhouse clickhouse-client \
-  --user default --password "$CLICKHOUSE_PASSWORD" \
+  --user default --password "$(grep CLICKHOUSE_PASSWORD .env | cut -d= -f2)" \
   --query "CREATE DATABASE IF NOT EXISTS iot"
 
 docker exec -i sm_clickhouse clickhouse-client \
-  --user default --password "$CLICKHOUSE_PASSWORD" --multiquery \
+  --user default --password "$(grep CLICKHOUSE_PASSWORD .env | cut -d= -f2)" --multiquery \
   < clickhouse/init.sql
 
 docker compose restart telegraf
 ```
+
+Verify:
+
+```bash
+docker exec sm_clickhouse clickhouse-client \
+  --user default --password "$(grep CLICKHOUSE_PASSWORD .env | cut -d= -f2)" \
+  --query "SHOW TABLES FROM iot"
+```
+
+Expected: `anomaly_events`, `mv_anomaly_parse`, `mv_telemetry_1m`, `mv_telemetry_parse`, `telemetry`, `telemetry_1m`, `telemetry_raw`.
 
 ### 3. Build and run the edge binary
 
@@ -220,6 +239,7 @@ Core stack runs unchanged on a server or laptop on the same network — only `CE
 - [x] Graceful shutdown (context cancellation, drained MQTT buffer)
 - [x] Hardware serial input (USB / RS-485), interface selected via `.env`
 - [x] Externalized configuration — no rebuild needed to change deployment target
+- [x] `.env` auto-loaded by the binary directly, not just by Docker Compose
 - [x] Dockerfile for edge binary (ARM64, distroless)
 - [ ] Real sensor hardware validation (Raspberry Pi + ADXL345/MPU6050 bench test)
 - [ ] Outbound alert webhooks (Slack, PagerDuty)
