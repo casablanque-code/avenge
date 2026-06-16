@@ -98,7 +98,7 @@ func main() {
 		defer close(eventsDone)
 		for ev := range mgr.Events() {
 			totalWindows++
-			if ev.Event.Anomaly {
+			if ev.Event != nil && ev.Event.Anomaly {
 				anomalyWindows++
 			}
 
@@ -109,21 +109,37 @@ func main() {
 				continue
 			}
 
-			// Publish anomaly state transition.
-			eventType := "clear"
-			if ev.Event.Anomaly {
-				eventType = "onset"
+			// Periodic telemetry flush → sm/telemetry/<id>
+			if ev.IsTelemetryFlush {
+				if err := pub.PublishTelemetry(
+					time.Now().UnixMilli(),
+					ev.WindowRMS, // last window RMS as the point value
+					ev.WindowRMS,
+					ev.SDTRatio,
+					ev.IsAnomaly,
+					ev.Severity,
+				); err != nil {
+					fmt.Fprintf(os.Stderr, "publish telemetry: %v\n", err)
+				}
 			}
-			if err := pub.PublishAnomaly(
-				time.Now(),
-				eventType,
-				string(ev.Event.Severity),
-				float32(ev.Event.RMS),
-				float32(ev.Event.ZScore),
-				float32(ev.Event.BaselineMean),
-				float32(ev.Event.BaselineStdDev),
-			); err != nil {
-				fmt.Fprintf(os.Stderr, "publish anomaly: %v\n", err)
+
+			// Anomaly state transition → sm/anomaly/<id>
+			if ev.Event != nil {
+				eventType := "clear"
+				if ev.Event.Anomaly {
+					eventType = "onset"
+				}
+				if err := pub.PublishAnomaly(
+					time.Now(),
+					eventType,
+					string(ev.Event.Severity),
+					float32(ev.Event.RMS),
+					float32(ev.Event.ZScore),
+					float32(ev.Event.BaselineMean),
+					float32(ev.Event.BaselineStdDev),
+				); err != nil {
+					fmt.Fprintf(os.Stderr, "publish anomaly: %v\n", err)
+				}
 			}
 		}
 	}()
@@ -169,28 +185,39 @@ shutdown:
 			dropped, reconnects, lost)
 	}
 
-	printStats(totalSamples, totalWindows, anomalyWindows)
+	printStats(totalSamples, totalWindows, anomalyWindows, sensor.DefaultSensorConfig(*sensorID).SampleRate)
 }
 
 // ── Console output ─────────────────────────────────────────────────────────
 
 func printWorkerEvent(n int, ev sensor.WorkerEvent) {
-	e := ev.Event
+	severity := ev.Severity
+	if severity == "" {
+		severity = "normal"
+	}
+
 	status := "  OK  "
-	switch {
-	case e.Severity == "critical":
+	switch severity {
+	case "critical":
 		status = " CRIT "
-	case e.Severity == "warning":
+	case "warning":
 		status = " WARN "
 	}
 
-	fmt.Printf("win %4d  sensor=%-12s  [%s]  rms=%.4f  z=%+.1fσ",
-		n, ev.SensorID, status, ev.WindowRMS, e.ZScore)
+	tag := ""
+	if ev.IsTelemetryFlush {
+		tag = fmt.Sprintf("  [flush sdt=%.1f×]", ev.SDTRatio)
+	}
 
-	if e.Anomaly {
-		fmt.Printf("  ⚡ ANOMALY [%s]", e.Severity)
-	} else {
-		fmt.Printf("  ✅ CLEAR  [%s]", e.Severity)
+	fmt.Printf("win %4d  sensor=%-12s  [%s]  rms=%.4f%s",
+		n, ev.SensorID, status, ev.WindowRMS, tag)
+
+	if ev.Event != nil {
+		if ev.Event.Anomaly {
+			fmt.Printf("  ⚡ ANOMALY [%s] z=%+.1fσ", ev.Event.Severity, ev.Event.ZScore)
+		} else {
+			fmt.Printf("  ✅ CLEAR  [%s] z=%+.1fσ", ev.Event.Severity, ev.Event.ZScore)
+		}
 	}
 
 	if ev.BandResult.FaultBandAnomaly {
@@ -200,11 +227,10 @@ func printWorkerEvent(n int, ev sensor.WorkerEvent) {
 	fmt.Println()
 }
 
-func printStats(samples int64, windows, anomalyWins int) {
-	const sampleRate = 1000 // matches DefaultSensorConfig
+func printStats(samples int64, windows, anomalyWins, sampleRate int) {
 	sep := strings.Repeat("─", 54)
 	fmt.Println("\n" + sep)
-	fmt.Printf("  Total samples   : %d (%.1f s)\n", samples, float64(samples)/sampleRate)
+	fmt.Printf("  Total samples   : %d (%.1f s)\n", samples, float64(samples)/float64(sampleRate))
 	fmt.Printf("  Windows         : %d\n", windows)
 	if windows > 0 {
 		fmt.Printf("  Anomalous       : %d / %d (%.0f%%)\n",

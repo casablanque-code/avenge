@@ -83,6 +83,12 @@ func DefaultSensorConfig(id string) SensorConfig {
 // WorkerEvent wraps an anomaly.Event with the sensor ID that produced it.
 // Using a separate struct (rather than relying on Event.SensorID alone)
 // keeps the routing logic explicit and avoids mutating shared Event pointers.
+//
+// Two kinds of events flow through this struct:
+//   - Telemetry flush (IsTelemetryFlush=true): periodic SDT summary, ~every 10s.
+//     Published to sm/telemetry/<id>. Event may be nil if no state change occurred.
+//   - Anomaly transition (IsTelemetryFlush=false, Event!=nil): state change only.
+//     Published to sm/anomaly/<id>.
 type WorkerEvent struct {
 	SensorID string
 	Event    *anomaly.Event
@@ -90,6 +96,18 @@ type WorkerEvent struct {
 	WindowRMS float32
 	// BandResult holds the per-band FFT analysis for this window.
 	BandResult anomaly.BandResult
+
+	// IsTelemetryFlush is true when this event carries a periodic SDT summary.
+	// The publisher should send a telemetry message regardless of anomaly state.
+	IsTelemetryFlush bool
+	// SDTRatio is the compression ratio from the most recent SDT flush.
+	// Only meaningful when IsTelemetryFlush is true.
+	SDTRatio float32
+	// IsAnomaly mirrors the current detector state at flush time.
+	// Only meaningful when IsTelemetryFlush is true.
+	IsAnomaly bool
+	// Severity mirrors the current severity at flush time.
+	Severity string
 }
 
 // SensorWorker runs the full processing pipeline for a single sensor.
@@ -174,26 +192,47 @@ func (w *SensorWorker) ingestSample(s Sample) *WorkerEvent {
 	event := w.det.IngestWindow(origVals, windowStartT)
 	windowRMS := float32(rmsOf(origVals))
 
-	// SDT flush.
+	// SDT flush — emit a telemetry event every SDTFlushEvery windows.
+	// This is independent of anomaly state transitions: we always want
+	// periodic data in ClickHouse so Grafana has something to draw.
+	var flushEvent *WorkerEvent
 	if w.totalWindows%w.cfg.SDTFlushEvery == 0 {
 		compressed := filter.SDT(w.sdt, w.cfg.SDTEpsilon)
+		ratio := float32(filter.CompressionRatio(len(w.sdt), len(compressed)))
 		w.totalRaw += len(w.sdt)
 		w.totalCompressed += len(compressed)
 		w.sdt = w.sdt[:0]
+
+		flushEvent = &WorkerEvent{
+			SensorID:         w.cfg.ID,
+			Event:            event, // may be nil — that's fine
+			WindowRMS:        windowRMS,
+			BandResult:       bandResult,
+			IsTelemetryFlush: true,
+			SDTRatio:         ratio,
+			IsAnomaly:        w.det.State(),
+			Severity:         string(w.det.Severity()),
+		}
 	}
 
-	if event == nil {
-		return nil
+	// Anomaly state transition — emit regardless of flush cycle.
+	if event != nil {
+		event.SensorID = w.cfg.ID
+		if flushEvent != nil {
+			// Flush event already carries this transition — no duplicate needed.
+			return flushEvent
+		}
+		return &WorkerEvent{
+			SensorID:   w.cfg.ID,
+			Event:      event,
+			WindowRMS:  windowRMS,
+			BandResult: bandResult,
+			IsAnomaly:  w.det.State(),
+			Severity:   string(w.det.Severity()),
+		}
 	}
 
-	// Fill in the sensor identity now that we know who produced this event.
-	event.SensorID = w.cfg.ID
-	return &WorkerEvent{
-		SensorID:   w.cfg.ID,
-		Event:      event,
-		WindowRMS:  windowRMS,
-		BandResult: bandResult,
-	}
+	return flushEvent // nil when no flush and no transition
 }
 
 // CompressionRatio returns the current SDT compression ratio.
