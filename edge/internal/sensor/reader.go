@@ -14,6 +14,13 @@ import (
 	"io"
 )
 
+// SampleSource is the common interface for all sample input sources.
+// Reader (stdin/JSONL) and SerialReader (hardware serial port) both
+// implement it so main.go can swap sources without any other changes.
+type SampleSource interface {
+	Next() (Sample, error)
+}
+
 // Sample is one ADC reading from the vibration sensor.
 type Sample struct {
 	T        float64 `json:"t"`

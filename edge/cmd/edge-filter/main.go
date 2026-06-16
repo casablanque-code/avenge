@@ -35,6 +35,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -44,12 +45,49 @@ import (
 )
 
 func main() {
-	broker   := flag.String("broker",    "localhost:1883", "MQTT broker address")
-	sensorID := flag.String("sensor-id", "bearing_01",    "Sensor identifier")
-	noMQTT   := flag.Bool("no-mqtt",     false,           "Disable MQTT output")
+	broker     := flag.String("broker",    "localhost:1883", "MQTT broker address")
+	sensorID   := flag.String("sensor-id", "bearing_01",    "Sensor identifier")
+	noMQTT     := flag.Bool("no-mqtt",     false,           "Disable MQTT output")
 	flag.Parse()
 
 	fmt.Fprintf(os.Stderr, "edge-filter  sensor=%s  broker=%s\n", *sensorID, *broker)
+
+	// ── Sample source ──────────────────────────────────────────────────
+	// SERIAL_INTERFACE env selects the input:
+	//   unset / ""  → stdin (JSONL from firmware-sim, for local dev)
+	//   "usb"       → USB serial port (Arduino, CH340 dongle)
+	//   "rs485"     → RS-485 via USB dongle or HAT
+	//
+	// USB and RS-485 use the same binary packet protocol and SerialReader —
+	// only the device path and baud rate differ.
+	var src sensor.SampleSource
+	switch iface := os.Getenv("SERIAL_INTERFACE"); iface {
+	case "usb", "rs485":
+		port := os.Getenv("USB_PORT")
+		baud := 230400
+		if iface == "rs485" {
+			port = os.Getenv("RS485_PORT")
+			if b := os.Getenv("RS485_BAUD"); b != "" {
+				if parsed, err := strconv.Atoi(b); err == nil {
+					baud = parsed
+				}
+			}
+		}
+		if port == "" {
+			port = "/dev/ttyUSB0"
+		}
+		sr, err := sensor.OpenSerialReader(port, baud, sensor.DefaultSensorConfig(*sensorID).SampleRate)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "serial: %v\n", err)
+			os.Exit(1)
+		}
+		defer sr.Close()
+		src = sr
+		fmt.Fprintf(os.Stderr, "serial source: iface=%s port=%s baud=%d\n", iface, port, baud)
+	default:
+		src = sensor.NewReader(os.Stdin)
+		fmt.Fprintln(os.Stderr, "serial source: stdin (JSONL)")
+	}
 
 	// ── Context: cancelled on SIGINT / SIGTERM ─────────────────────────
 	ctx, cancel := context.WithCancel(context.Background())
@@ -144,18 +182,15 @@ func main() {
 		}
 	}()
 
-	// ── Hot loop: read stdin → Manager ────────────────────────────────
-	reader := sensor.NewReader(os.Stdin)
+	// ── Hot loop: read source → Manager ───────────────────────────────
 	for {
-		// Check for shutdown before each read so we exit cleanly on signal
-		// even when stdin is a slow/blocked stream (e.g. real hardware).
 		select {
 		case <-ctx.Done():
 			goto shutdown
 		default:
 		}
 
-		s, err := reader.Next()
+		s, err := src.Next()
 		if err != nil {
 			break // EOF or read error
 		}
