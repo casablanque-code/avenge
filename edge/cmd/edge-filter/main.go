@@ -40,12 +40,22 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/casablanque-code/smart-manufacturing/edge/internal/envfile"
 	mqttclient "github.com/casablanque-code/smart-manufacturing/edge/internal/mqtt"
 	"github.com/casablanque-code/smart-manufacturing/edge/internal/sensor"
 )
 
 func main() {
-	broker := flag.String("broker", "localhost:1883", "MQTT broker address")
+	// Load .env before flags are parsed, so the broker default below can
+	// read from it. Tries both common working directories so the binary
+	// behaves the same whether run from the repo root (as README shows:
+	// ./edge/edge-filter) or from inside edge/ directly.
+	// Real shell exports and Docker `environment:` always win — see
+	// envfile.Load doc comment.
+	envfile.Load(".env")
+	envfile.Load("edge/.env")
+
+	broker := flag.String("broker", defaultBroker(), "MQTT broker address")
 	sensorID := flag.String("sensor-id", "bearing_01", "Sensor identifier")
 	noMQTT := flag.Bool("no-mqtt", false, "Disable MQTT output")
 	flag.Parse()
@@ -224,6 +234,22 @@ shutdown:
 }
 
 // ── Console output ─────────────────────────────────────────────────────────
+
+// defaultBroker builds the --broker default from CENTRAL_HOST/MQTT_PORT
+// (set via edge/.env or the environment). Falls back to localhost:1883
+// for local dev with firmware-sim when neither is set.
+// An explicit --broker flag always overrides this.
+func defaultBroker() string {
+	host := os.Getenv("CENTRAL_HOST")
+	if host == "" {
+		host = "localhost"
+	}
+	port := os.Getenv("MQTT_PORT")
+	if port == "" {
+		port = "1883"
+	}
+	return host + ":" + port
+}
 
 func printWorkerEvent(n int, ev sensor.WorkerEvent) {
 	severity := ev.Severity
