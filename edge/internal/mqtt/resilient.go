@@ -78,7 +78,9 @@ func (rc *ResilientClient) Stop() {
 // Non-blocking: if the buffer is full the message is dropped and logged.
 // This is the correct behaviour for a real-time sensor pipeline where
 // dropping old data is safer than blocking the caller.
-func (rc *ResilientClient) Publish(topic string, payload []byte, qos byte) {
+// Always returns nil — drops are recorded in Stats(), not propagated as errors.
+// This signature satisfies the mqtt.Publishable interface.
+func (rc *ResilientClient) Publish(topic string, payload []byte, qos byte) error {
 	req := publishRequest{topic: topic, payload: payload, qos: qos}
 	select {
 	case rc.buf <- req:
@@ -87,6 +89,7 @@ func (rc *ResilientClient) Publish(topic string, payload []byte, qos byte) {
 		fmt.Printf("[mqtt] DROP publish to %s — buffer full (total drops: %d)\n",
 			topic, n)
 	}
+	return nil
 }
 
 // Stats returns cumulative drop, reconnect, and lost-connection counts.

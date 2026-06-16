@@ -40,15 +40,21 @@ type AnomalyMessage struct {
 	BaselineStddev float32 `json:"baseline_stddev"`
 }
 
+// Publishable is the minimal interface required by Publisher.
+// Both *Client and *ResilientClient satisfy it.
+type Publishable interface {
+	Publish(topic string, payload []byte, qos byte) error
+}
+
 // Publisher sends pipeline results to the MQTT broker.
 type Publisher struct {
-	client   *Client
+	client   Publishable
 	sensorID string
 	qos      byte
 }
 
-// NewPublisher creates a Publisher using an existing connected Client.
-func NewPublisher(client *Client, sensorID string, qos byte) *Publisher {
+// NewPublisher creates a Publisher using any Publishable client.
+func NewPublisher(client Publishable, sensorID string, qos byte) *Publisher {
 	return &Publisher{client: client, sensorID: sensorID, qos: qos}
 }
 
