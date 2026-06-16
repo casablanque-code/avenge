@@ -64,6 +64,7 @@ avenge/
 │   ├── .env.example
 │   └── internal/
 │       ├── sensor/              # SampleSource: stdin/JSONL reader + SerialReader (USB/RS-485)
+|	|-- envfile/		 # envfile loader
 │       ├── fft/                 # Cooley-Tukey FFT + zero-alloc processor
 │       ├── filter/               # Swinging Door Trending compression
 │       ├── anomaly/             # RMS + Z-score stateful detector, band-specific filtering
