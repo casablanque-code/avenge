@@ -1,0 +1,5 @@
+# Env files — never commit real secrets
+.env
+
+# Edge binary (built locally)
+edge/edge-filter

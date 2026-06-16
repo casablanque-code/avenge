@@ -43,8 +43,8 @@ services:
     restart: unless-stopped
     networks: [iot]
     ports:
-      - "1883:1883"   # MQTT (plaintext — PoC only; use TLS in production)
-      - "9001:9001"   # WebSocket (for browser-based debugging tools)
+      - "${MQTT_PORT:-1883}:1883"
+      - "${MQTT_WS_PORT:-9001}:9001"
     volumes:
       - ./mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
       - mosquitto-data:/mosquitto/data
@@ -61,8 +61,8 @@ services:
     restart: unless-stopped
     networks: [iot]
     ports:
-      - "8123:8123"   # HTTP interface (used by Grafana plugin + Telegraf)
-      - "9000:9000"   # Native TCP
+      - "${CLICKHOUSE_HTTP_PORT:-8123}:8123"
+      - "${CLICKHOUSE_TCP_PORT:-9000}:9000"
     volumes:
       - clickhouse-data:/var/lib/clickhouse
       # NOTE: init.sql is intentionally NOT mounted to
@@ -71,8 +71,8 @@ services:
       # 24.3-alpine image. Apply the schema manually — see header comment
       # in clickhouse/init.sql.
     environment:
-      CLICKHOUSE_USER: default
-      CLICKHOUSE_PASSWORD: clickhouse
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?CLICKHOUSE_PASSWORD is not set}
     ulimits:
       nofile:
         soft: 262144
@@ -100,6 +100,8 @@ services:
       - ./telegraf/telegraf.conf:/etc/telegraf/telegraf.conf:ro
     environment:
       MQTT_BROKER: "tcp://mosquitto:1883"
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?CLICKHOUSE_PASSWORD is not set}
 
   # ── Grafana ────────────────────────────────────────────────────────────
   grafana:
@@ -108,7 +110,7 @@ services:
     restart: unless-stopped
     networks: [iot]
     ports:
-      - "3000:3000"
+      - "${GRAFANA_PORT:-3000}:3000"
     depends_on:
       clickhouse:
         condition: service_healthy
@@ -122,7 +124,7 @@ services:
       # download command.
       - ./grafana/plugins:/var/lib/grafana/plugins:ro
     environment:
-      GF_SECURITY_ADMIN_PASSWORD: admin   # change for production
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is not set}
       GF_USERS_ALLOW_SIGN_UP: "false"
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:3000/api/health"]

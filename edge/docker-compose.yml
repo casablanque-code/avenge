@@ -1,0 +1,65 @@
+# AVENGE — Edge Engine (Raspberry Pi)
+#
+# Runs the edge-filter Go binary in a container on the Pi.
+# All config comes from edge/.env — no hardcoded values here.
+#
+# Prerequisites:
+#   1. Build the ARM64 image on your dev machine:
+#        docker buildx build --platform linux/arm64 \
+#          -t ghcr.io/casablanque-code/avenge-edge:latest \
+#          -f edge/Dockerfile edge/ --push
+#   2. Copy edge/.env (from edge/.env.example) to the Pi.
+#   3. On the Pi: docker compose -f edge/docker-compose.yml up -d
+#
+# Sensor interface is selected by SERIAL_INTERFACE in .env:
+#   usb   → /dev/ttyACM0 or /dev/ttyUSB0 (Arduino, CH340 dongle)
+#   rs485 → /dev/ttyUSB0 (USB-to-RS485 dongle or HAT)
+#
+# Start:  docker compose up -d
+# Logs:   docker compose logs -f avenge-edge
+# Stop:   docker compose down
+
+services:
+
+  avenge-edge:
+    image: ghcr.io/casablanque-code/avenge-edge:latest
+    container_name: avenge_edge
+    restart: unless-stopped
+
+    # Serial device access.
+    # Both paths are listed so the same compose file works for USB and RS-485
+    # without editing — Docker ignores devices that don't exist on the host.
+    devices:
+      - "/dev/ttyACM0:/dev/ttyACM0"   # USB (Arduino)
+      - "/dev/ttyUSB0:/dev/ttyUSB0"   # USB-to-RS485 dongle or CH340
+      - "/dev/i2c-1:/dev/i2c-1"       # I2C (future: direct sensor on Pi)
+
+    environment:
+      # Sensor interface selection — must match a device listed above.
+      # Set in .env: SERIAL_INTERFACE=usb  or  SERIAL_INTERFACE=rs485
+      SERIAL_INTERFACE: ${SERIAL_INTERFACE:?Set SERIAL_INTERFACE=usb or rs485 in .env}
+
+      USB_PORT:    ${USB_PORT:-/dev/ttyACM0}
+      RS485_PORT:  ${RS485_PORT:-/dev/ttyUSB0}
+      RS485_BAUD:  ${RS485_BAUD:-230400}
+
+      SENSOR_ID:          ${SENSOR_ID:-bearing_01}
+      SENSOR_SAMPLE_RATE: ${SENSOR_SAMPLE_RATE:-8000}
+      FFT_WINDOW_SIZE:    ${FFT_WINDOW_SIZE:-1024}
+
+      # Upstream core stack — set CENTRAL_HOST in .env to the server IP.
+      MQTT_BROKER_URL: tcp://${CENTRAL_HOST:?Set CENTRAL_HOST in .env}:${MQTT_PORT:-1883}
+
+    # The container produces no persistent data of its own —
+    # all state lives upstream in ClickHouse.
+    # Uncomment to enable local crash-log volume:
+    # volumes:
+    #   - ./logs:/var/log/avenge
+
+    healthcheck:
+      # Edge binary writes to stderr; check the process is alive.
+      test: ["CMD-SHELL", "pgrep edge-filter || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
