@@ -27,6 +27,13 @@ type TelemetryMessage struct {
 	IsAnomaly int     `json:"is_anomaly"` // 0 or 1
 	Severity  string  `json:"severity"`   // "normal" | "warning" | "critical"
 	SDTRatio  float32 `json:"sdt_ratio"`
+	// FinalScore is the combined z-score from scoring.Combine: the max of
+	// the RMS detector's z-score and the band detector's max z-score.
+	// Severity above is derived from this value, not from RMS alone.
+	FinalScore float32 `json:"final_score"`
+	// DominantSignal names which detector produced FinalScore — "rms" or
+	// "band" — so an alert can be traced back to which signal triggered it.
+	DominantSignal string `json:"dominant_signal"`
 }
 
 // AnomalyMessage is the JSON payload for sm/anomaly/<sensor_id>.
@@ -65,19 +72,23 @@ func (p *Publisher) PublishTelemetry(
 	value, windowRMS, sdtRatio float32,
 	isAnomaly bool,
 	severity string,
+	finalScore float32,
+	dominantSignal string,
 ) error {
 	anomalyInt := 0
 	if isAnomaly {
 		anomalyInt = 1
 	}
 	msg := TelemetryMessage{
-		TsMs:      tsMs,
-		SensorID:  p.sensorID,
-		Value:     value,
-		WindowRMS: windowRMS,
-		IsAnomaly: anomalyInt,
-		Severity:  severity,
-		SDTRatio:  sdtRatio,
+		TsMs:           tsMs,
+		SensorID:       p.sensorID,
+		Value:          value,
+		WindowRMS:      windowRMS,
+		IsAnomaly:      anomalyInt,
+		Severity:       severity,
+		SDTRatio:       sdtRatio,
+		FinalScore:     finalScore,
+		DominantSignal: dominantSignal,
 	}
 	payload, err := json.Marshal(msg)
 	if err != nil {

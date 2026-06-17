@@ -187,6 +187,8 @@ func main() {
 					ev.SDTRatio,
 					ev.IsAnomaly,
 					ev.Severity,
+					float32(ev.FinalScore),
+					ev.DominantSignal,
 				); err != nil {
 					fmt.Fprintf(os.Stderr, "publish telemetry: %v\n", err)
 				}
@@ -291,14 +293,14 @@ func printWorkerEvent(n int, ev sensor.WorkerEvent) {
 		tag = fmt.Sprintf("  [flush sdt=%.1f×]", ev.SDTRatio)
 	}
 
-	fmt.Printf("win %4d  sensor=%-12s  [%s]  rms=%.4f%s",
-		n, ev.SensorID, status, ev.WindowRMS, tag)
+	fmt.Printf("win %4d  sensor=%-12s  [%s]  rms=%.4f  score=%+.1fσ(%s)%s",
+		n, ev.SensorID, status, ev.WindowRMS, ev.FinalScore, ev.DominantSignal, tag)
 
 	if ev.Event != nil {
 		if ev.Event.Anomaly {
-			fmt.Printf("  ⚡ ANOMALY [%s] z=%+.1fσ", ev.Event.Severity, ev.Event.ZScore)
+			fmt.Printf("  ⚡ ANOMALY [%s]", ev.Event.Severity)
 		} else {
-			fmt.Printf("  ✅ CLEAR  [%s] z=%+.1fσ", ev.Event.Severity, ev.Event.ZScore)
+			fmt.Printf("  ✅ CLEAR  [%s]", ev.Event.Severity)
 		}
 	}
 

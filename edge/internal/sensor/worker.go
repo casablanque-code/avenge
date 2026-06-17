@@ -33,6 +33,7 @@ import (
 	"github.com/casablanque-code/smart-manufacturing/edge/internal/anomaly"
 	"github.com/casablanque-code/smart-manufacturing/edge/internal/fft"
 	"github.com/casablanque-code/smart-manufacturing/edge/internal/filter"
+	"github.com/casablanque-code/smart-manufacturing/edge/internal/scoring"
 )
 
 // SensorConfig holds all tunable parameters for one sensor's pipeline.
@@ -103,11 +104,22 @@ type WorkerEvent struct {
 	// SDTRatio is the compression ratio from the most recent SDT flush.
 	// Only meaningful when IsTelemetryFlush is true.
 	SDTRatio float32
-	// IsAnomaly mirrors the current detector state at flush time.
-	// Only meaningful when IsTelemetryFlush is true.
+	// IsAnomaly reflects the combined scoring decision (see FinalScore),
+	// not the RMS detector alone — a window can be IsAnomaly=true purely
+	// because the band detector saw a spike, even if RMS looks calm.
 	IsAnomaly bool
-	// Severity mirrors the current severity at flush time.
+	// Severity is derived from FinalScore, combining the RMS detector's
+	// z-score and the band detector's max z-score (scoring.Combine).
+	// Before the scoring layer existed, this mirrored the RMS detector's
+	// severity alone, silently ignoring a strong band-specific signal.
 	Severity string
+	// FinalScore is the combined z-score driving Severity: max of the
+	// RMS detector's z-score and the band detector's max z-score.
+	FinalScore float64
+	// DominantSignal names which input produced FinalScore — "rms" or
+	// "band" — useful for distinguishing a broad energy increase from a
+	// narrow frequency-specific spike when reviewing an alert.
+	DominantSignal string
 }
 
 // SensorWorker runs the full processing pipeline for a single sensor.
@@ -116,10 +128,11 @@ type WorkerEvent struct {
 type SensorWorker struct {
 	cfg SensorConfig
 
-	fftProc *fft.Processor
-	det     *anomaly.Detector
-	bandDet *anomaly.BandDetector
-	sdt     []filter.Point
+	fftProc  *fft.Processor
+	det      *anomaly.Detector
+	bandDet  *anomaly.BandDetector
+	sdt      []filter.Point
+	scoreThr scoring.Thresholds
 
 	ringBuf    []float64
 	ringFilled int
@@ -154,8 +167,9 @@ func newSensorWorker(cfg SensorConfig) *SensorWorker {
 			anomaly.DefaultBands(cfg.SampleRate),
 			bandCfg,
 		),
-		sdt:     make([]filter.Point, 0, cfg.FFTWindow*20),
-		ringBuf: make([]float64, cfg.FFTWindow),
+		scoreThr: scoring.DefaultThresholds(),
+		sdt:      make([]filter.Point, 0, cfg.FFTWindow*20),
+		ringBuf:  make([]float64, cfg.FFTWindow),
 	}
 }
 
@@ -192,6 +206,15 @@ func (w *SensorWorker) ingestSample(s Sample) *WorkerEvent {
 	event := w.det.IngestWindow(origVals, windowStartT)
 	windowRMS := float32(rmsOf(origVals))
 
+	// Combine the RMS detector's z-score with the band detector's max
+	// z-score into one final decision — previously these were two
+	// independent signals with no combining logic: a worker could
+	// publish "severity: normal" from the RMS detector in the same
+	// window the band detector saw a 90σ spike in the fault band.
+	// scoring.Combine takes max(rmsZ, bandZ) so a strong band-specific
+	// signal can't be silently outvoted by a calm overall RMS.
+	score := scoring.Combine(w.det.LastZScore(), bandResult.MaxZScore, w.scoreThr)
+
 	// SDT flush — emit a telemetry event every SDTFlushEvery windows.
 	// This is independent of anomaly state transitions: we always want
 	// periodic data in ClickHouse so Grafana has something to draw.
@@ -210,8 +233,10 @@ func (w *SensorWorker) ingestSample(s Sample) *WorkerEvent {
 			BandResult:       bandResult,
 			IsTelemetryFlush: true,
 			SDTRatio:         ratio,
-			IsAnomaly:        w.det.State(),
-			Severity:         string(w.det.Severity()),
+			IsAnomaly:        score.Severity != anomaly.SeverityNormal,
+			Severity:         string(score.Severity),
+			FinalScore:       score.FinalScore,
+			DominantSignal:   score.DominantSignal,
 		}
 	}
 
@@ -223,12 +248,14 @@ func (w *SensorWorker) ingestSample(s Sample) *WorkerEvent {
 			return flushEvent
 		}
 		return &WorkerEvent{
-			SensorID:   w.cfg.ID,
-			Event:      event,
-			WindowRMS:  windowRMS,
-			BandResult: bandResult,
-			IsAnomaly:  w.det.State(),
-			Severity:   string(w.det.Severity()),
+			SensorID:       w.cfg.ID,
+			Event:          event,
+			WindowRMS:      windowRMS,
+			BandResult:     bandResult,
+			IsAnomaly:      score.Severity != anomaly.SeverityNormal,
+			Severity:       string(score.Severity),
+			FinalScore:     score.FinalScore,
+			DominantSignal: score.DominantSignal,
 		}
 	}
 

@@ -7,11 +7,11 @@
 -- Apply manually after `docker compose up -d` and ClickHouse is healthy:
 --
 --   docker exec sm_clickhouse clickhouse-client \
---     --user default --password clickhouse \
+--     --user default --password "$(grep CLICKHOUSE_PASSWORD core/.env | cut -d= -f2)" \
 --     --query "CREATE DATABASE IF NOT EXISTS iot"
 --
 --   docker exec -i sm_clickhouse clickhouse-client \
---     --user default --password clickhouse --multiquery \
+--     --user default --password "$(grep CLICKHOUSE_PASSWORD core/.env | cut -d= -f2)" --multiquery \
 --     < core/clickhouse/init.sql
 
 -- ── Landing table ──────────────────────────────────────────────────────
@@ -31,7 +31,11 @@ CREATE TABLE IF NOT EXISTS iot.telemetry
     window_rms  Float32,
     is_anomaly  UInt8,
     severity    LowCardinality(String),
-    sdt_ratio   Float32
+    sdt_ratio   Float32,
+    -- final_score / dominant_signal come from internal/scoring: the
+    -- combined max(rmsZ, bandZ) decision and which detector produced it.
+    final_score      Float32 DEFAULT 0,
+    dominant_signal  LowCardinality(String) DEFAULT ''
 )
 ENGINE = MergeTree()
 PARTITION BY toYYYYMM(ts)
@@ -67,7 +71,9 @@ AS SELECT
     JSONExtractFloat(JSONExtractRaw(elem, 'fields'), 'window_rms')     AS window_rms,
     JSONExtractUInt(JSONExtractRaw(elem, 'fields'), 'is_anomaly')      AS is_anomaly,
     JSONExtractString(JSONExtractRaw(elem, 'fields'), 'severity')      AS severity,
-    JSONExtractFloat(JSONExtractRaw(elem, 'fields'), 'sdt_ratio')      AS sdt_ratio
+    JSONExtractFloat(JSONExtractRaw(elem, 'fields'), 'sdt_ratio')      AS sdt_ratio,
+    JSONExtractFloat(JSONExtractRaw(elem, 'fields'), 'final_score')    AS final_score,
+    JSONExtractString(JSONExtractRaw(elem, 'fields'), 'dominant_signal') AS dominant_signal
 FROM iot.telemetry_raw
 ARRAY JOIN JSONExtractArrayRaw(raw, 'metrics') AS elem
 WHERE JSONExtractString(elem, 'name') = 'telemetry';

@@ -75,6 +75,7 @@ type Detector struct {
 	baseStdDev       float64
 	lastAnomalyState bool
 	lastSeverity     Severity
+	lastZScore       float64
 }
 
 // NewDetector creates a Detector with the given configuration.
@@ -111,6 +112,7 @@ func (d *Detector) IngestWindow(samples []float64, windowStartT float64) *Event 
 		std = d.cfg.MinStdDev
 	}
 	z := (rms - d.baseMean) / std
+	d.lastZScore = z
 
 	// Hysteresis: use a lower exit threshold than enter threshold so that
 	// a z-score oscillating near the boundary doesn't cause
@@ -165,6 +167,17 @@ func (d *Detector) State() bool { return d.lastAnomalyState }
 
 // Severity returns the current severity level.
 func (d *Detector) Severity() Severity { return d.lastSeverity }
+
+// LastZScore returns the z-score computed for the most recent window,
+// regardless of whether that window triggered a state transition.
+// scoring.Combine needs this on every window, not just on transitions —
+// Event (returned only on transitions) was the only other place this
+// value was exposed before.
+//
+// Returns 0 during the baseline warmup phase (BaselineReady() == false),
+// since no meaningful z-score exists yet without a baseline to compare
+// against.
+func (d *Detector) LastZScore() float64 { return d.lastZScore }
 
 // BaselineReady reports whether warmup is complete.
 func (d *Detector) BaselineReady() bool { return d.baselineReady }
