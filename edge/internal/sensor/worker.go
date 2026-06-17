@@ -248,6 +248,7 @@ type Manager struct {
 	mu      sync.RWMutex
 	workers map[string]*workerHandle
 	events  chan WorkerEvent
+	wg      sync.WaitGroup
 }
 
 type workerHandle struct {
@@ -285,6 +286,7 @@ func (m *Manager) Add(cfg SensorConfig) error {
 	m.workers[cfg.ID] = h
 	m.mu.Unlock()
 
+	m.wg.Add(1)
 	go m.runWorker(ctx, h)
 	return nil
 }
@@ -344,6 +346,13 @@ func (m *Manager) Sensors() []string {
 
 // Stop removes all sensors and closes the events channel.
 // Call once, at shutdown.
+//
+// Waits for every runWorker goroutine to actually exit before closing
+// m.events — cancelling a context only signals a goroutine to stop, it
+// doesn't guarantee it has stopped. Without this wait, a worker still
+// mid-way through `m.events <- *ev` could race with close(m.events) and
+// panic with "send on closed channel". Confirmed via -race in
+// manager_race2_test.go before this fix.
 func (m *Manager) Stop() {
 	m.mu.Lock()
 	ids := make([]string, 0, len(m.workers))
@@ -355,12 +364,14 @@ func (m *Manager) Stop() {
 	for _, id := range ids {
 		m.Remove(id)
 	}
+	m.wg.Wait()
 	close(m.events)
 }
 
 // runWorker is the goroutine body for one SensorWorker.
 // It reads from h.input and routes WorkerEvents to m.events.
 func (m *Manager) runWorker(ctx context.Context, h *workerHandle) {
+	defer m.wg.Done()
 	for {
 		select {
 		case <-ctx.Done():

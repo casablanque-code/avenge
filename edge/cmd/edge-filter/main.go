@@ -62,6 +62,26 @@ func main() {
 
 	fmt.Fprintf(os.Stderr, "edge-filter  sensor=%s  broker=%s\n", *sensorID, *broker)
 
+	// ── Sensor configuration ─────────────────────────────────────────────
+	// SENSOR_SAMPLE_RATE must match the firmware's actual output data rate
+	// exactly (see edge/firmware/adxl345_esp32/adxl345_esp32.ino — ADXL345
+	// is hardware-capped at 3200 Hz, this project runs it at 1600 Hz).
+	// This single value feeds both the FFT/anomaly pipeline (via
+	// sensorCfg.SampleRate) and SerialReader's timestamp reconstruction —
+	// previously these could silently diverge because SerialReader was
+	// wired to DefaultSensorConfig's hardcoded 1000 Hz regardless of what
+	// SENSOR_SAMPLE_RATE actually said, which would desync every Sample.T
+	// from real elapsed time and shift every computed FFT frequency.
+	sensorCfg := sensor.DefaultSensorConfig(*sensorID)
+	if r := os.Getenv("SENSOR_SAMPLE_RATE"); r != "" {
+		if parsed, err := strconv.Atoi(r); err == nil && parsed > 0 {
+			sensorCfg.SampleRate = parsed
+		} else {
+			fmt.Fprintf(os.Stderr, "warning: invalid SENSOR_SAMPLE_RATE=%q, using default %d Hz\n",
+				r, sensorCfg.SampleRate)
+		}
+	}
+
 	// ── Sample source ──────────────────────────────────────────────────
 	// SERIAL_INTERFACE env selects the input:
 	//   unset / ""  → stdin (JSONL from firmware-sim, for local dev)
@@ -86,14 +106,15 @@ func main() {
 		if port == "" {
 			port = "/dev/ttyUSB0"
 		}
-		sr, err := sensor.OpenSerialReader(port, baud, sensor.DefaultSensorConfig(*sensorID).SampleRate)
+		sr, err := sensor.OpenSerialReader(port, baud, sensorCfg.SampleRate)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "serial: %v\n", err)
 			os.Exit(1)
 		}
 		defer sr.Close()
 		src = sr
-		fmt.Fprintf(os.Stderr, "serial source: iface=%s port=%s baud=%d\n", iface, port, baud)
+		fmt.Fprintf(os.Stderr, "serial source: iface=%s port=%s baud=%d sampleRate=%dHz\n",
+			iface, port, baud, sensorCfg.SampleRate)
 	default:
 		src = sensor.NewReader(os.Stdin)
 		fmt.Fprintln(os.Stderr, "serial source: stdin (JSONL)")
@@ -127,7 +148,7 @@ func main() {
 
 	// ── Sensor Manager ─────────────────────────────────────────────────
 	mgr := sensor.NewManager(256)
-	if err := mgr.Add(sensor.DefaultSensorConfig(*sensorID)); err != nil {
+	if err := mgr.Add(sensorCfg); err != nil {
 		fmt.Fprintf(os.Stderr, "manager.Add: %v\n", err)
 		os.Exit(1)
 	}
@@ -230,7 +251,7 @@ shutdown:
 			dropped, reconnects, lost)
 	}
 
-	printStats(totalSamples, totalWindows, anomalyWindows, sensor.DefaultSensorConfig(*sensorID).SampleRate)
+	printStats(totalSamples, totalWindows, anomalyWindows, sensorCfg.SampleRate)
 }
 
 // ── Console output ─────────────────────────────────────────────────────────

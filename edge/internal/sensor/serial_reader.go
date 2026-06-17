@@ -16,6 +16,7 @@
 package sensor
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"syscall"
@@ -72,18 +73,49 @@ func (r *SerialReader) Next() (Sample, error) {
 	for {
 		// Ensure we have at least 3 bytes in the buffer.
 		for r.bufLen < 3 {
+			if r.bufLen >= len(r.buf) {
+				// Buffer is full and still hasn't produced 3 usable bytes —
+				// this only happens if resync (below) somehow leaves it
+				// full, which it shouldn't, but guard anyway: a Read call
+				// with a zero-length slice would return (0, nil) forever,
+				// hanging this goroutine with no error and no progress.
+				// Drop everything and start over rather than spin.
+				r.bufLen = 0
+				continue
+			}
 			n, err := r.f.Read(r.buf[r.bufLen:])
 			if err != nil {
 				return Sample{}, fmt.Errorf("serial read: %w", err)
 			}
+			if n == 0 {
+				// Defensive: a well-behaved blocking serial fd shouldn't
+				// return (0, nil), but if it ever does, treat it as "no
+				// progress" rather than looping with bufLen unchanged.
+				return Sample{}, fmt.Errorf("serial read: 0 bytes with no error (port closed or disconnected?)")
+			}
 			r.bufLen += n
 		}
 
-		// Find start marker.
-		if r.buf[0] != 0xAA {
-			// Shift buffer forward by one byte to resync.
-			copy(r.buf[:], r.buf[1:r.bufLen])
-			r.bufLen--
+		// Find the start marker. Unlike a byte-by-byte shift, this jumps
+		// straight to the next 0xAA (or discards the whole buffer if
+		// there isn't one) — important on a noisy line where many bytes
+		// of garbage can arrive between valid packets; a one-byte-at-a-time
+		// shift would be O(n) per garbage byte instead of O(1).
+		idx := bytes.IndexByte(r.buf[:r.bufLen], 0xAA)
+		if idx == -1 {
+			// No marker anywhere in the buffer — none of this is usable.
+			r.bufLen = 0
+			continue
+		}
+		if idx > 0 {
+			// Marker found mid-buffer — discard the garbage before it.
+			copy(r.buf[:], r.buf[idx:r.bufLen])
+			r.bufLen -= idx
+		}
+
+		if r.bufLen < 3 {
+			// Marker is right at the end of what we have — need more
+			// bytes before we can read the payload that follows it.
 			continue
 		}
 

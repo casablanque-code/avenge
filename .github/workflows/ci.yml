@@ -47,4 +47,6 @@ jobs:
         run: go build ./...
 
       - name: Test
-        run: go test ./... -v -count=1
+        # -race caught a genuine "send on closed channel" data race in
+        # Manager.Stop() during development — keep it on permanently.
+        run: go test ./... -v -count=1 -race
