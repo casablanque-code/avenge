@@ -167,7 +167,12 @@ func main() {
 		defer close(eventsDone)
 		for ev := range mgr.Events() {
 			totalWindows++
-			if ev.Event != nil && ev.Event.Anomaly {
+			// Count anomalous windows via the combined scoring decision,
+			// not just state-transition Events — ev.Event is only non-nil
+			// on NORMAL↔ANOMALY transitions, so a 1000-window sustained
+			// anomaly was previously counted as "1 anomalous window" rather
+			// than 1000. ev.IsAnomaly is set on every WorkerEvent.
+			if ev.IsAnomaly {
 				anomalyWindows++
 			}
 
