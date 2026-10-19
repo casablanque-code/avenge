@@ -56,7 +56,7 @@ func main() {
 	envfile.Load("edge/.env")
 
 	broker := flag.String("broker", defaultBroker(), "MQTT broker address")
-	sensorID := flag.String("sensor-id", "bearing_01", "Sensor identifier")
+	sensorID := flag.String("sensor-id", envOr("SENSOR_ID", "bearing_01"), "Sensor identifier (default: $SENSOR_ID)")
 	noMQTT := flag.Bool("no-mqtt", false, "Disable MQTT output")
 	flag.Parse()
 
@@ -262,6 +262,14 @@ shutdown:
 }
 
 // ── Console output ─────────────────────────────────────────────────────────
+
+// envOr returns the value of environment variable key, or def if unset/empty.
+func envOr(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
+}
 
 // defaultBroker builds the --broker default from CENTRAL_HOST/MQTT_PORT
 // (set via edge/.env or the environment). Falls back to localhost:1883
