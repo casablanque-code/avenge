@@ -1,0 +1,13 @@
+# Mosquitto ACL — users are defined in core/mosquitto/config/passwd
+# (generate it with core/mosquitto/gen-passwd.sh).
+
+# Edge devices publish telemetry and anomaly events only.
+user edge
+topic write sm/telemetry/#
+topic write sm/anomaly/#
+
+# Telegraf consumes the same topics. $SYS is read for the broker healthcheck.
+user telegraf
+topic read sm/telemetry/#
+topic read sm/anomaly/#
+topic read $SYS/#

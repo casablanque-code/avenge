@@ -47,6 +47,8 @@ services:
       # Core stack — read by the binary (defaultBroker in main.go).
       CENTRAL_HOST: ${CENTRAL_HOST:?Set CENTRAL_HOST in .env}
       MQTT_PORT:    ${MQTT_PORT:-1883}
+      MQTT_USER:     ${MQTT_USER:-edge}
+      MQTT_PASSWORD: ${MQTT_PASSWORD:?Set MQTT_PASSWORD in .env}
 
     # No healthcheck: the distroless image has no shell or pgrep.
     # Use `restart: unless-stopped` and `docker compose logs`.

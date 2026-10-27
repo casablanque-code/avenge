@@ -110,7 +110,7 @@ GRAFANA_ADMIN_PASSWORD=changeme
 
 Switching from local dev (everything on one laptop) to a real deployment (edge device + separate server) is a `.env` edit, not a code or rebuild change.
 
-**`core/.env`** is read by Docker Compose only — values reach containers via `environment:` blocks in `core/docker-compose.yml`. Your shell does not see them automatically; commands that need `$CLICKHOUSE_PASSWORD` directly (step 2 below) require an explicit `export` first.
+**`core/.env`** is read by Docker Compose only — values reach containers via `environment:` blocks in `core/compose.yaml`. Your shell does not see them automatically; commands that need `$CLICKHOUSE_PASSWORD` directly (step 2 below) require an explicit `export` first.
 
 **`edge/.env`** is read two ways, and both stay consistent:
 - Inside a container, Docker Compose passes it via `env_file:`.
@@ -179,7 +179,7 @@ python3 firmware-sim/signal_generator.py batch --samples 8000 --anomaly \
 
 ### 4. Grafana
 
-`http://localhost:3000` — credentials from `GRAFANA_ADMIN_PASSWORD` in `core/.env`. The **Vibration Monitor** dashboard is auto-provisioned: RMS timeline, SDT scatter, anomaly events table, compression ratio gauge.
+`http://grafana.localhost` — credentials from `GRAFANA_ADMIN_PASSWORD` in `core/.env`. The **Vibration Monitor** dashboard is auto-provisioned: RMS timeline, SDT scatter, anomaly events table, compression ratio gauge.
 
 ---
 

@@ -1,0 +1,349 @@
+diff
+--- a/.gitignore	2026-10-27 19:56:48.267013444 +0000
++++ b/.gitignore	2026-10-27 19:56:48.276178547 +0000
+@@ -1,5 +1,6 @@
+ # Env files — never commit real secrets
+ .env
++core/mosquitto/config/passwd
+ 
+ # Edge binary (built locally)
+ edge/edge-filter
+diff
+--- a/core/.env.example	2026-10-27 19:54:54.495264674 +0000
++++ b/core/.env.example	2026-10-27 19:56:48.278372620 +0000
+@@ -11,6 +11,12 @@
+ # ── Grafana ──────────────────────────────────────────────────
+ GRAFANA_ADMIN_PASSWORD=changeme
+ 
++# ── MQTT users (no spaces; letters and digits are safest) ────
++# After editing, run: core/mosquitto/gen-passwd.sh
++# MQTT_EDGE_PASSWORD must match MQTT_PASSWORD in edge/.env.
++MQTT_EDGE_PASSWORD=changeme
++MQTT_TELEGRAF_PASSWORD=changeme
++
+ # ── MQTT bind address ────────────────────────────────────────
+ # 127.0.0.1 = this machine only. For a real edge device, set this to
+ # the LAN IP of this machine (e.g. 192.168.1.50).
+diff
+--- a/core/compose.yaml	2026-10-27 19:54:54.493770790 +0000
++++ b/core/compose.yaml	2026-10-27 19:56:48.277273587 +0000
+@@ -1,7 +1,7 @@
+ # AVENGE — Core Analytics Stack
+ #
+ # Services:
+-#   mosquitto   MQTT broker  (1883 on $MQTT_BIND, 9001 on localhost)
++#   mosquitto   MQTT broker  (1883 on $MQTT_BIND, auth + ACL required)
+ #   clickhouse  Time-series DB (8123 HTTP, 9000 native — localhost only)
+ #   telegraf    MQTT -> ClickHouse bridge (no exposed ports)
+ #   grafana     Dashboards (no published port — reached via caddy)
+@@ -51,12 +51,15 @@
+       # MQTT (plaintext — PoC only). MQTT_BIND defaults to localhost; set it to
+       # the LAN IP of this machine so the edge device can connect.
+       - "${MQTT_BIND:-127.0.0.1}:1883:1883"
+-      - "127.0.0.1:9001:9001"   # WebSocket (local debugging tools only)
+     volumes:
+       - ./mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
++      - ./mosquitto/config/acl:/mosquitto/config/acl:ro
++      - ./mosquitto/config/passwd:/mosquitto/config/passwd:ro
+       - mosquitto-data:/mosquitto/data
++    environment:
++      MQTT_TELEGRAF_PASSWORD: ${MQTT_TELEGRAF_PASSWORD:?MQTT_TELEGRAF_PASSWORD is not set}
+     healthcheck:
+-      test: ["CMD", "mosquitto_sub", "-t", "$$SYS/#", "-C", "1", "-W", "2"]
++      test: ["CMD-SHELL", "mosquitto_sub -u telegraf -P \"$$MQTT_TELEGRAF_PASSWORD\" -t '$$SYS/broker/uptime' -C 1 -W 2"]
+       interval: 10s
+       timeout: 5s
+       retries: 3
+@@ -107,6 +110,8 @@
+       - ./telegraf/telegraf.conf:/etc/telegraf/telegraf.conf:ro
+     environment:
+       MQTT_BROKER: "tcp://mosquitto:1883"
++      MQTT_USER: telegraf
++      MQTT_PASSWORD: ${MQTT_TELEGRAF_PASSWORD:?MQTT_TELEGRAF_PASSWORD is not set}
+       CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
+       CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?CLICKHOUSE_PASSWORD is not set}
+ 
+diff
+--- a/core/mosquitto/config/acl	1970-01-01 00:00:00.000000000 +0000
++++ b/core/mosquitto/config/acl	2026-10-27 19:56:48.279609870 +0000
+@@ -0,0 +1,13 @@
++# Mosquitto ACL — users are defined in core/mosquitto/config/passwd
++# (generate it with core/mosquitto/gen-passwd.sh).
++
++# Edge devices publish telemetry and anomaly events only.
++user edge
++topic write sm/telemetry/#
++topic write sm/anomaly/#
++
++# Telegraf consumes the same topics. $SYS is read for the broker healthcheck.
++user telegraf
++topic read sm/telemetry/#
++topic read sm/anomaly/#
++topic read $SYS/#
+diff
+--- a/core/mosquitto/config/mosquitto.conf	2026-10-27 19:54:54.496791841 +0000
++++ b/core/mosquitto/config/mosquitto.conf	2026-10-27 19:56:48.279583526 +0000
+@@ -1,9 +1,7 @@
+ listener 1883
+-allow_anonymous true
+-
+-listener 9001
+-protocol websockets
+-allow_anonymous true
++allow_anonymous false
++password_file /mosquitto/config/passwd
++acl_file /mosquitto/config/acl
+ 
+ persistence true
+ persistence_location /mosquitto/data/
+diff
+--- a/core/mosquitto/gen-passwd.sh	1970-01-01 00:00:00.000000000 +0000
++++ b/core/mosquitto/gen-passwd.sh	2026-10-27 19:56:48.279632570 +0000
+@@ -0,0 +1,51 @@
++#!/usr/bin/env bash
++# gen-passwd.sh — create core/mosquitto/config/passwd from core/.env
++#
++# Usage:  core/mosquitto/gen-passwd.sh        (run from anywhere)
++#         core/mosquitto/gen-passwd.sh -h     (help)
++#
++# Reads MQTT_EDGE_PASSWORD and MQTT_TELEGRAF_PASSWORD from core/.env and
++# writes hashed entries for the users "edge" and "telegraf".
++# Requires Docker (uses the eclipse-mosquitto:2.0 image for hashing).
++# Restart the broker afterwards: docker compose -f core/compose.yaml restart mosquitto
++
++set -euo pipefail
++
++if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
++  sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'
++  exit 0
++fi
++
++CORE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
++ENV_FILE="$CORE_DIR/.env"
++OUT="$CORE_DIR/mosquitto/config/passwd"
++
++[[ -f "$ENV_FILE" ]] || { echo "error: $ENV_FILE not found (copy core/.env.example)" >&2; exit 1; }
++
++# Read a KEY=value line without sourcing the file (values may contain symbols).
++get() { grep -E "^$1=" "$ENV_FILE" | tail -n1 | cut -d= -f2-; }
++
++EDGE_PW="$(get MQTT_EDGE_PASSWORD)"
++TELEGRAF_PW="$(get MQTT_TELEGRAF_PASSWORD)"
++
++for pair in "MQTT_EDGE_PASSWORD:$EDGE_PW" "MQTT_TELEGRAF_PASSWORD:$TELEGRAF_PW"; do
++  name="${pair%%:*}"; val="${pair#*:}"
++  [[ -n "$val" ]] || { echo "error: $name is empty in $ENV_FILE" >&2; exit 1; }
++  [[ "$val" != "changeme" ]] || echo "warning: $name is still 'changeme'" >&2
++  [[ "$val" =~ [[:space:]] ]] && { echo "error: $name must not contain spaces" >&2; exit 1; }
++done
++
++hash_line() {
++  docker run --rm eclipse-mosquitto:2.0 sh -c \
++    'mosquitto_passwd -c -b /tmp/p "$1" "$2" >/dev/null 2>&1 && cat /tmp/p' _ "$1" "$2"
++}
++
++umask 022
++{ hash_line edge "$EDGE_PW"; hash_line telegraf "$TELEGRAF_PW"; } > "$OUT.tmp"
++mv "$OUT.tmp" "$OUT"
++
++echo "┌──────────────────────────────────────────────┐"
++echo "│ passwd written: users edge, telegraf         │"
++echo "└──────────────────────────────────────────────┘"
++echo "File: $OUT"
++echo "Next: docker compose -f core/compose.yaml up -d --force-recreate mosquitto telegraf"
+diff
+--- a/core/telegraf/telegraf.conf	2026-10-27 19:54:54.497917433 +0000
++++ b/core/telegraf/telegraf.conf	2026-10-27 19:56:48.280752296 +0000
+@@ -9,6 +9,8 @@
+ # ── Input: MQTT telemetry ─────────────────────────────────────────────────
+ [[inputs.mqtt_consumer]]
+   servers            = ["${MQTT_BROKER}"]
++  username           = "${MQTT_USER}"
++  password           = "${MQTT_PASSWORD}"
+   topics             = ["sm/telemetry/#"]
+   persistent_session = false
+   qos                = 1
+@@ -40,6 +42,8 @@
+ # ── Input: MQTT anomaly events ────────────────────────────────────────────
+ [[inputs.mqtt_consumer]]
+   servers            = ["${MQTT_BROKER}"]
++  username           = "${MQTT_USER}"
++  password           = "${MQTT_PASSWORD}"
+   topics             = ["sm/anomaly/#"]
+   persistent_session = false
+   qos                = 1
+diff
+--- a/edge/.env.example	2026-10-27 19:54:45.977134008 +0000
++++ b/edge/.env.example	2026-10-27 19:56:48.281847092 +0000
+@@ -25,6 +25,10 @@
+ SENSOR_SAMPLE_RATE=1600
+ 
+ # ── Upstream (core stack) ────────────────────────────────────
+-# IP or hostname of the machine running core/docker-compose.yml
++# IP or hostname of the machine running core/compose.yaml
+ CENTRAL_HOST=192.168.1.50
+ MQTT_PORT=1883
++
++# MQTT credentials: user "edge"; password = MQTT_EDGE_PASSWORD from core/.env
++MQTT_USER=edge
++MQTT_PASSWORD=changeme
+diff
+--- a/edge/cmd/edge-filter/main.go	2026-10-27 19:54:45.977225047 +0000
++++ b/edge/cmd/edge-filter/main.go	2026-10-27 19:56:48.281943523 +0000
+@@ -139,6 +139,8 @@
+ 	)
+ 	if !*noMQTT {
+ 		cfg := mqttclient.DefaultConfig(*broker, "edge-filter-"+*sensorID)
++		cfg.Username = os.Getenv("MQTT_USER")
++		cfg.Password = os.Getenv("MQTT_PASSWORD")
+ 		cfg.ConnectTimeout = 3 * time.Second
+ 		resilient = mqttclient.NewResilientClient(cfg, 512)
+ 		resilient.Start()
+diff
+--- a/edge/docker-compose.yml	2026-10-27 19:54:45.977302358 +0000
++++ b/edge/docker-compose.yml	2026-10-27 19:56:48.281978341 +0000
+@@ -47,6 +47,8 @@
+       # Core stack — read by the binary (defaultBroker in main.go).
+       CENTRAL_HOST: ${CENTRAL_HOST:?Set CENTRAL_HOST in .env}
+       MQTT_PORT:    ${MQTT_PORT:-1883}
++      MQTT_USER:     ${MQTT_USER:-edge}
++      MQTT_PASSWORD: ${MQTT_PASSWORD:?Set MQTT_PASSWORD in .env}
+ 
+     # No healthcheck: the distroless image has no shell or pgrep.
+     # Use `restart: unless-stopped` and `docker compose logs`.
+diff
+--- a/edge/internal/mqtt/client.go	2026-10-27 19:54:45.977665526 +0000
++++ b/edge/internal/mqtt/client.go	2026-10-27 19:56:48.282657663 +0000
+@@ -46,6 +46,10 @@
+ 	ConnectTimeout time.Duration
+ 	// PublishTimeout for waiting on QoS1 PUBACK.
+ 	PublishTimeout time.Duration
++	// Username and Password are sent in CONNECT when Username is non-empty.
++	// The password is only sent together with a username (MQTT 3.1.1).
++	Username string
++	Password string
+ }
+ 
+ // DefaultConfig returns sensible defaults for a local broker.
+@@ -174,19 +178,32 @@
+ // ── Wire format helpers ────────────────────────────────────────────────────
+ 
+ func (c *Client) sendConnect() error {
+-	clientID := []byte(c.cfg.ClientID)
++	// Connect flags: clean session, plus username/password when configured.
++	flags := byte(0x02)
++	if c.cfg.Username != "" {
++		flags |= 0x80
++		if c.cfg.Password != "" {
++			flags |= 0x40
++		}
++	}
+ 
+ 	// Variable header: protocol name + level + connect flags + keep-alive.
+ 	varHeader := []byte{
+ 		0x00, 0x04, 'M', 'Q', 'T', 'T', // protocol name
+ 		0x04, // protocol level 3.1.1
+-		0x02, // connect flags: clean session
++		flags,
+ 		byte(c.cfg.KeepAlive >> 8),
+ 		byte(c.cfg.KeepAlive),
+ 	}
+ 
+-	// Payload: client ID (length-prefixed string).
+-	payload := encodeString(clientID)
++	// Payload: client ID, then username and password (length-prefixed strings).
++	payload := encodeString([]byte(c.cfg.ClientID))
++	if c.cfg.Username != "" {
++		payload = append(payload, encodeString([]byte(c.cfg.Username))...)
++		if c.cfg.Password != "" {
++			payload = append(payload, encodeString([]byte(c.cfg.Password))...)
++		}
++	}
+ 
+ 	remaining := append(varHeader, payload...)
+ 	pkt := buildFixedHeader(pktConnect, len(remaining))
+diff
+--- a/edge/internal/mqtt/client_auth_test.go	1970-01-01 00:00:00.000000000 +0000
++++ b/edge/internal/mqtt/client_auth_test.go	2026-10-27 19:56:48.282876562 +0000
+@@ -0,0 +1,81 @@
++package mqtt
++
++import (
++	"io"
++	"net"
++	"testing"
++	"time"
++)
++
++// readConnect accepts one connection, reads a full CONNECT packet, replies
++// with CONNACK (accepted) and returns the packet body (after the fixed header).
++func readConnect(t *testing.T, ln net.Listener) <-chan []byte {
++	t.Helper()
++	out := make(chan []byte, 1)
++	go func() {
++		conn, err := ln.Accept()
++		if err != nil {
++			return
++		}
++		defer conn.Close()
++		hdr := make([]byte, 2) // CONNECT bodies in these tests are < 128 bytes
++		if _, err := io.ReadFull(conn, hdr); err != nil {
++			return
++		}
++		body := make([]byte, hdr[1])
++		if _, err := io.ReadFull(conn, body); err != nil {
++			return
++		}
++		_, _ = conn.Write([]byte{0x20, 0x02, 0x00, 0x00})
++		out <- body
++		time.Sleep(50 * time.Millisecond)
++	}()
++	return out
++}
++
++func connectBody(t *testing.T, user, pass string) []byte {
++	t.Helper()
++	ln, err := net.Listen("tcp", "127.0.0.1:0")
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer ln.Close()
++	got := readConnect(t, ln)
++
++	cfg := DefaultConfig(ln.Addr().String(), "cid")
++	cfg.Username, cfg.Password = user, pass
++	c, err := Connect(cfg)
++	if err != nil {
++		t.Fatalf("Connect: %v", err)
++	}
++	defer c.Disconnect()
++
++	select {
++	case b := <-got:
++		return b
++	case <-time.After(2 * time.Second):
++		t.Fatal("no CONNECT received")
++		return nil
++	}
++}
++
++func TestConnectWithCredentials(t *testing.T) {
++	b := connectBody(t, "edge", "s3cret")
++	if b[7] != 0xC2 {
++		t.Fatalf("connect flags = 0x%02x, want 0xC2", b[7])
++	}
++	want := append(append(encodeString([]byte("cid")), encodeString([]byte("edge"))...), encodeString([]byte("s3cret"))...)
++	if string(b[10:]) != string(want) {
++		t.Fatalf("payload = %q, want %q", b[10:], want)
++	}
++}
++
++func TestConnectAnonymous(t *testing.T) {
++	b := connectBody(t, "", "")
++	if b[7] != 0x02 {
++		t.Fatalf("connect flags = 0x%02x, want 0x02", b[7])
++	}
++	if string(b[10:]) != string(encodeString([]byte("cid"))) {
++		t.Fatalf("unexpected payload %q", b[10:])
++	}
++}

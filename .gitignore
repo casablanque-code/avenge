@@ -1,5 +1,6 @@
 # Env files — never commit real secrets
 .env
+core/mosquitto/config/passwd
 
 # Edge binary (built locally)
 edge/edge-filter
