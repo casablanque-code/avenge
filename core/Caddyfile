@@ -1,0 +1,7 @@
+{
+	auto_https off
+}
+
+http://grafana.localhost {
+	reverse_proxy grafana:3000
+}

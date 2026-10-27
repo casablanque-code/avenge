@@ -46,6 +46,10 @@ type Config struct {
 	ConnectTimeout time.Duration
 	// PublishTimeout for waiting on QoS1 PUBACK.
 	PublishTimeout time.Duration
+	// Username and Password are sent in CONNECT when Username is non-empty.
+	// The password is only sent together with a username (MQTT 3.1.1).
+	Username string
+	Password string
 }
 
 // DefaultConfig returns sensible defaults for a local broker.
@@ -174,19 +178,32 @@ func (c *Client) Disconnect() {
 // ── Wire format helpers ────────────────────────────────────────────────────
 
 func (c *Client) sendConnect() error {
-	clientID := []byte(c.cfg.ClientID)
+	// Connect flags: clean session, plus username/password when configured.
+	flags := byte(0x02)
+	if c.cfg.Username != "" {
+		flags |= 0x80
+		if c.cfg.Password != "" {
+			flags |= 0x40
+		}
+	}
 
 	// Variable header: protocol name + level + connect flags + keep-alive.
 	varHeader := []byte{
 		0x00, 0x04, 'M', 'Q', 'T', 'T', // protocol name
 		0x04, // protocol level 3.1.1
-		0x02, // connect flags: clean session
+		flags,
 		byte(c.cfg.KeepAlive >> 8),
 		byte(c.cfg.KeepAlive),
 	}
 
-	// Payload: client ID (length-prefixed string).
-	payload := encodeString(clientID)
+	// Payload: client ID, then username and password (length-prefixed strings).
+	payload := encodeString([]byte(c.cfg.ClientID))
+	if c.cfg.Username != "" {
+		payload = append(payload, encodeString([]byte(c.cfg.Username))...)
+		if c.cfg.Password != "" {
+			payload = append(payload, encodeString([]byte(c.cfg.Password))...)
+		}
+	}
 
 	remaining := append(varHeader, payload...)
 	pkt := buildFixedHeader(pktConnect, len(remaining))

@@ -139,6 +139,8 @@ func main() {
 	)
 	if !*noMQTT {
 		cfg := mqttclient.DefaultConfig(*broker, "edge-filter-"+*sensorID)
+		cfg.Username = os.Getenv("MQTT_USER")
+		cfg.Password = os.Getenv("MQTT_PASSWORD")
 		cfg.ConnectTimeout = 3 * time.Second
 		resilient = mqttclient.NewResilientClient(cfg, 512)
 		resilient.Start()

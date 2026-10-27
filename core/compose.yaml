@@ -1,10 +1,11 @@
 # AVENGE — Core Analytics Stack
 #
 # Services:
-#   mosquitto   MQTT broker  (port 1883)
-#   clickhouse  Time-series DB (port 8123 HTTP, 9000 native)
+#   mosquitto   MQTT broker  (1883 on $MQTT_BIND, auth + ACL required)
+#   clickhouse  Time-series DB (8123 HTTP, 9000 native — localhost only)
 #   telegraf    MQTT -> ClickHouse bridge (no exposed ports)
-#   grafana     Dashboards (port 3000)
+#   grafana     Dashboards (no published port — reached via caddy)
+#   caddy       Local reverse proxy: http://grafana.localhost (localhost:80)
 #
 # Data flow:
 #   edge-filter -> MQTT(mosquitto) -> Telegraf -> ClickHouse -> Grafana
@@ -13,10 +14,10 @@
 #   1. Wait for clickhouse to become healthy: docker compose ps
 #   2. Apply schema manually (see clickhouse/init.sql header for why):
 #        docker exec sm_clickhouse clickhouse-client \
-#          --user default --password clickhouse \
+#          --user default --password "$(grep CLICKHOUSE_PASSWORD .env | cut -d= -f2)" \
 #          --query "CREATE DATABASE IF NOT EXISTS iot"
 #        docker exec -i sm_clickhouse clickhouse-client \
-#          --user default --password clickhouse --multiquery \
+#          --user default --password "$(grep CLICKHOUSE_PASSWORD .env | cut -d= -f2)" --multiquery \
 #          < clickhouse/init.sql
 #   3. Restart telegraf so it (re)connects after schema exists:
 #        docker compose restart telegraf
@@ -28,11 +29,15 @@
 networks:
   iot:
     driver: bridge
+  proxy:
+    driver: bridge
 
 volumes:
   clickhouse-data:
   grafana-data:
   mosquitto-data:
+  caddy-data:
+  caddy-config:
 
 services:
 
@@ -43,13 +48,18 @@ services:
     restart: unless-stopped
     networks: [iot]
     ports:
-      - "1883:1883"   # MQTT (plaintext — PoC only; use TLS in production)
-      - "9001:9001"   # WebSocket (for browser-based debugging tools)
+      # MQTT (plaintext — PoC only). MQTT_BIND defaults to localhost; set it to
+      # the LAN IP of this machine so the edge device can connect.
+      - "${MQTT_BIND:-127.0.0.1}:1883:1883"
     volumes:
       - ./mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./mosquitto/config/acl:/mosquitto/config/acl:ro
+      - ./mosquitto/config/passwd:/mosquitto/config/passwd:ro
       - mosquitto-data:/mosquitto/data
+    environment:
+      MQTT_TELEGRAF_PASSWORD: ${MQTT_TELEGRAF_PASSWORD:?MQTT_TELEGRAF_PASSWORD is not set}
     healthcheck:
-      test: ["CMD", "mosquitto_sub", "-t", "$$SYS/#", "-C", "1", "-W", "2"]
+      test: ["CMD-SHELL", "mosquitto_sub -u telegraf -P \"$$MQTT_TELEGRAF_PASSWORD\" -t '$$SYS/broker/uptime' -C 1 -W 2"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -61,8 +71,8 @@ services:
     restart: unless-stopped
     networks: [iot]
     ports:
-      - "8123:8123"   # HTTP interface (used by Grafana plugin + Telegraf)
-      - "9000:9000"   # Native TCP
+      - "127.0.0.1:8123:8123"   # HTTP (Grafana + Telegraf use the iot network)
+      - "127.0.0.1:9000:9000"   # Native TCP
     volumes:
       - clickhouse-data:/var/lib/clickhouse
       # NOTE: init.sql is intentionally NOT mounted to
@@ -100,6 +110,8 @@ services:
       - ./telegraf/telegraf.conf:/etc/telegraf/telegraf.conf:ro
     environment:
       MQTT_BROKER: "tcp://mosquitto:1883"
+      MQTT_USER: telegraf
+      MQTT_PASSWORD: ${MQTT_TELEGRAF_PASSWORD:?MQTT_TELEGRAF_PASSWORD is not set}
       CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
       CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?CLICKHOUSE_PASSWORD is not set}
 
@@ -108,9 +120,7 @@ services:
     image: grafana/grafana:10.4.2
     container_name: sm_grafana
     restart: unless-stopped
-    networks: [iot]
-    ports:
-      - "3000:3000"
+    networks: [iot, proxy]
     depends_on:
       clickhouse:
         condition: service_healthy
@@ -126,6 +136,7 @@ services:
     environment:
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is not set}
       GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SERVER_ROOT_URL: "http://grafana.localhost"
       # Required so provisioning/datasources/clickhouse.yaml can substitute
       # ${CLICKHOUSE_PASSWORD} — Grafana expands env vars in provisioning
       # files against its own process environment, not the host's.
@@ -136,3 +147,19 @@ services:
       interval: 15s
       timeout: 5s
       retries: 5
+
+  # ── Local reverse proxy ────────────────────────────────────────────────
+  caddy:
+    image: caddy:2
+    container_name: sm_caddy
+    restart: unless-stopped
+    networks: [proxy]
+    ports:
+      - "127.0.0.1:80:80"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      grafana:
+        condition: service_healthy
