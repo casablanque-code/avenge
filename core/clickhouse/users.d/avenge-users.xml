@@ -1,0 +1,37 @@
+<clickhouse>
+  <!--
+    AVENGE service accounts. Mounted into /etc/clickhouse-server/users.d/.
+    Passwords come from the container environment (see core/compose.yaml).
+    The admin user (CLICKHOUSE_USER / CLICKHOUSE_PASSWORD) is only for
+    manual work and schema setup.
+  -->
+  <profiles>
+    <avenge_readonly>
+      <readonly>2</readonly>
+    </avenge_readonly>
+  </profiles>
+
+  <users>
+    <!-- Telegraf: may only INSERT into the landing table. -->
+    <telegraf>
+      <password from_env="CH_TELEGRAF_PASSWORD"/>
+      <networks><ip>::/0</ip></networks>
+      <profile>default</profile>
+      <quota>default</quota>
+      <grants>
+        <query>GRANT INSERT ON iot.telemetry_raw</query>
+      </grants>
+    </telegraf>
+
+    <!-- Grafana: read-only access to the iot database. -->
+    <grafana>
+      <password from_env="CH_GRAFANA_PASSWORD"/>
+      <networks><ip>::/0</ip></networks>
+      <profile>avenge_readonly</profile>
+      <quota>default</quota>
+      <grants>
+        <query>GRANT SELECT ON iot.*</query>
+      </grants>
+    </grafana>
+  </users>
+</clickhouse>

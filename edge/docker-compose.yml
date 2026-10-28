@@ -19,12 +19,19 @@
 # Logs:   docker compose logs -f avenge-edge
 # Stop:   docker compose down
 
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
 
   avenge-edge:
     image: ghcr.io/casablanque-code/avenge-edge:${AVENGE_EDGE_TAG:-latest}
     container_name: avenge_edge
     restart: unless-stopped
+    logging: *default-logging
 
     devices:
       - "${SERIAL_PORT:-/dev/ttyACM0}:${SERIAL_PORT:-/dev/ttyACM0}"
