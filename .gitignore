@@ -4,3 +4,9 @@ core/mosquitto/config/passwd
 
 # Edge binary (built locally)
 edge/edge-filter
+
+# Python
+__pycache__/
+*.pyc
+
+*.patch

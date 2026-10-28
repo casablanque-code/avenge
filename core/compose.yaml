@@ -12,19 +12,19 @@
 #
 # First-time setup (after `docker compose up -d`):
 #   1. Wait for clickhouse to become healthy: docker compose ps
-#   2. Apply schema manually (see clickhouse/init.sql header for why):
-#        docker exec sm_clickhouse clickhouse-client \
-#          --user default --password "$(grep CLICKHOUSE_PASSWORD .env | cut -d= -f2)" \
-#          --query "CREATE DATABASE IF NOT EXISTS iot"
-#        docker exec -i sm_clickhouse clickhouse-client \
-#          --user default --password "$(grep CLICKHOUSE_PASSWORD .env | cut -d= -f2)" --multiquery \
-#          < clickhouse/init.sql
-#   3. Restart telegraf so it (re)connects after schema exists:
-#        docker compose restart telegraf
+#   2. Create MQTT users:   mosquitto/gen-passwd.sh
+#   3. Apply the schema:    clickhouse/init.sh
+#   4. Restart consumers:   docker compose restart telegraf
 #
 # Start:  docker compose up -d
 # Stop:   docker compose down        (use -v to also wipe ClickHouse data)
 # Logs:   docker compose logs -f telegraf
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
 
 networks:
   iot:
@@ -46,6 +46,7 @@ services:
     image: eclipse-mosquitto:2.0
     container_name: sm_mosquitto
     restart: unless-stopped
+    logging: *default-logging
     networks: [iot]
     ports:
       # MQTT (plaintext — PoC only). MQTT_BIND defaults to localhost; set it to
@@ -69,20 +70,25 @@ services:
     image: clickhouse/clickhouse-server:24.3-alpine
     container_name: sm_clickhouse
     restart: unless-stopped
+    logging: *default-logging
     networks: [iot]
     ports:
       - "127.0.0.1:8123:8123"   # HTTP (Grafana + Telegraf use the iot network)
       - "127.0.0.1:9000:9000"   # Native TCP
     volumes:
       - clickhouse-data:/var/lib/clickhouse
+      # Service accounts (telegraf: INSERT only, grafana: read-only).
+      - ./clickhouse/users.d/avenge-users.xml:/etc/clickhouse-server/users.d/avenge-users.xml:ro
       # NOTE: init.sql is intentionally NOT mounted to
-      # docker-entrypoint-initdb.d — multi-statement scripts there trigger
-      # a double-process startup bug (EADDRINUSE on 8123/9000/9009) in the
-      # 24.3-alpine image. Apply the schema manually — see header comment
-      # in clickhouse/init.sql.
+      # docker-entrypoint-initdb.d (double-process startup bug in the
+      # 24.3-alpine image). Apply the schema with clickhouse/init.sh.
     environment:
+      # Admin account — manual work and schema setup only.
       CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
       CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?CLICKHOUSE_PASSWORD is not set}
+      # Read by clickhouse/users.d/avenge-users.xml.
+      CH_TELEGRAF_PASSWORD: ${CLICKHOUSE_TELEGRAF_PASSWORD:?CLICKHOUSE_TELEGRAF_PASSWORD is not set}
+      CH_GRAFANA_PASSWORD: ${CLICKHOUSE_GRAFANA_PASSWORD:?CLICKHOUSE_GRAFANA_PASSWORD is not set}
     ulimits:
       nofile:
         soft: 262144
@@ -100,6 +106,7 @@ services:
     image: telegraf:1.30-alpine
     container_name: sm_telegraf
     restart: unless-stopped
+    logging: *default-logging
     networks: [iot]
     depends_on:
       mosquitto:
@@ -112,14 +119,15 @@ services:
       MQTT_BROKER: "tcp://mosquitto:1883"
       MQTT_USER: telegraf
       MQTT_PASSWORD: ${MQTT_TELEGRAF_PASSWORD:?MQTT_TELEGRAF_PASSWORD is not set}
-      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
-      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?CLICKHOUSE_PASSWORD is not set}
+      CLICKHOUSE_USER: telegraf
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_TELEGRAF_PASSWORD:?CLICKHOUSE_TELEGRAF_PASSWORD is not set}
 
   # ── Grafana ────────────────────────────────────────────────────────────
   grafana:
     image: grafana/grafana:10.4.2
     container_name: sm_grafana
     restart: unless-stopped
+    logging: *default-logging
     networks: [iot, proxy]
     depends_on:
       clickhouse:
@@ -140,8 +148,8 @@ services:
       # Required so provisioning/datasources/clickhouse.yaml can substitute
       # ${CLICKHOUSE_PASSWORD} — Grafana expands env vars in provisioning
       # files against its own process environment, not the host's.
-      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
-      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?CLICKHOUSE_PASSWORD is not set}
+      CLICKHOUSE_USER: grafana
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_GRAFANA_PASSWORD:?CLICKHOUSE_GRAFANA_PASSWORD is not set}
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:3000/api/health"]
       interval: 15s
@@ -153,6 +161,7 @@ services:
     image: caddy:2
     container_name: sm_caddy
     restart: unless-stopped
+    logging: *default-logging
     networks: [proxy]
     ports:
       - "127.0.0.1:80:80"

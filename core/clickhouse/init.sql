@@ -1,18 +1,9 @@
 -- ClickHouse schema for AVENGE — Smart Manufacturing PoC
 --
--- IMPORTANT: This file is NOT auto-applied via docker-entrypoint-initdb.d.
--- ClickHouse 24.3-alpine has a known issue where multi-statement init
--- scripts cause a double-process startup (EADDRINUSE on 8123/9000/9009).
---
--- Apply manually after `docker compose up -d` and ClickHouse is healthy:
---
---   docker exec sm_clickhouse clickhouse-client \
---     --user default --password "$(grep CLICKHOUSE_PASSWORD core/.env | cut -d= -f2)" \
---     --query "CREATE DATABASE IF NOT EXISTS iot"
---
---   docker exec -i sm_clickhouse clickhouse-client \
---     --user default --password "$(grep CLICKHOUSE_PASSWORD core/.env | cut -d= -f2)" --multiquery \
---     < core/clickhouse/init.sql
+-- Apply with:  core/clickhouse/init.sh
+-- (not auto-applied via docker-entrypoint-initdb.d: multi-statement init
+-- scripts there trigger a double-process startup bug — EADDRINUSE on
+-- 8123/9000/9009 — in the 24.3-alpine image). Safe to re-run.
 
 -- ── Landing table ──────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS iot.telemetry_raw
@@ -123,3 +114,12 @@ AS SELECT
     countIf(severity = 'warning')          AS warning_count
 FROM iot.telemetry
 GROUP BY ts_bucket, sensor_id;
+
+-- ── Security: run materialized views as their owner ─────────────────────
+-- The telegraf account may only INSERT into iot.telemetry_raw. With
+-- DEFINER security the views read and write as the admin user that ran this
+-- script, so telegraf needs no access to the target tables.
+-- (Idempotent; also upgrades views created by older versions of this file.)
+ALTER TABLE iot.mv_telemetry_parse MODIFY DEFINER = CURRENT_USER SQL SECURITY DEFINER;
+ALTER TABLE iot.mv_anomaly_parse   MODIFY DEFINER = CURRENT_USER SQL SECURITY DEFINER;
+ALTER TABLE iot.mv_telemetry_1m    MODIFY DEFINER = CURRENT_USER SQL SECURITY DEFINER;
