@@ -1,72 +1,191 @@
-# Build and break things
+# A.V.E.N.G.E
 
-Network infra engineer. I build tools that check whether the obvious
-explanation is actually true, and a few systems that just got to work.
+**Anomaly Vibration Edge Network Go Engine**
 
-## Featured
+A Go-based edge computing engine for real-time vibration analytics, inline signal compression, and predictive anomaly detection. Zero external runtime dependencies, zero-heap-allocation hot path.
 
-### [A.V.E.N.G.E](https://github.com/casablanque-code/avenge): edge vibration analytics
-
-Go-based edge computing engine for real-time vibration analytics, inline signal compression, and predictive anomaly detection. Zero external runtime dependencies, zero-heap-allocation hot path.
-FFT → SDT compression → Z-score anomaly detection.
-MQTT → ClickHouse → Grafana, one `docker compose up` and u got the core stack.
-
-## Products
-
-- [**railcast**](https://github.com/casablanque-code/railcast): Sparkle is the updater. Railcast is the backend it needs. [`live`](https://railcast.casablanque.com)
-- [**komposer**](https://github.com/casablanque-code/komposer): terminal UI for Docker Compose files with spec validation and security checks.
-- [**platform-infra**](https://github.com/casablanque-code/platform-infra): self-service infrastructure for small teams on Cloudflare Workers + D1 + R2 & gh runners.
-
-## Investigations
-
-> friction → investigation → hypothesis → tool
-
-- [**gai**](https://github.com/casablanque-code/gai): `dig` working doesn't mean your process resolves the name the same way. Reconstructs the real `getaddrinfo()` decision path.
-- [**khm**](https://github.com/casablanque-code/khm): `known_hosts` is a database of server identities, not a cache.
-- [**cfzt**](https://github.com/casablanque-code/cfzt): one-command Cloudflare Zero Trust Tunnel cli.
-- [**sidecheck**](https://github.com/casablanque-code/sidecheck): remote timing side-channel detection using statistics instead of a stopwatch.
-- [**burnafterread**](https://github.com/casablanque-code/burnafterread): share a secret without giving the server access to it. [`live`](https://burnafterread.casablanque.com/)
-- [**netconv**](https://github.com/casablanque-code/netconv): config conversion is about semantics, not replacing keywords.
-
-### Network forensics
-
-Packets are evidence, not truth. Everything runs in the browser; PCAPs never leave your machine.
-
-[ospf](https://ospf.postmortem.casablanque.com/) · [dhcp](https://dhcp.postmortem.casablanque.com/) · [stp](https://stp.postmortem.casablanque.com/) · [dns](https://dns.postmortem.casablanque.com/)
-
-### Published
-
-<p align="left">
-  <a href="https://crates.io/crates/sidecheck"><img alt="sidecheck" src="https://img.shields.io/crates/v/sidecheck?label=sidecheck&style=flat-square"></a>
-  <a href="https://crates.io/crates/sidecheck-core"><img alt="sidecheck-core" src="https://img.shields.io/crates/v/sidecheck-core?label=sidecheck-core&style=flat-square"></a>
-  <a href="https://crates.io/crates/gai-probe"><img alt="gai-probe" src="https://img.shields.io/crates/v/gai-probe?label=gai-probe&style=flat-square"></a>
-  <a href="https://crates.io/crates/gai-core"><img alt="gai-core" src="https://img.shields.io/crates/v/gai-core?label=gai-core&style=flat-square"></a>
-  <a href="https://crates.io/crates/pcap-frame-parser"><img alt="pcap-frame-parser" src="https://img.shields.io/crates/v/pcap-frame-parser?label=pcap-frame-parser&style=flat-square"></a>
-  <a href="https://crates.io/crates/ios-config"><img alt="ios-config" src="https://img.shields.io/crates/v/ios-config?label=ios-config&style=flat-square"></a>
-  <a href="https://www.npmjs.com/package/burnafter"><img alt="burnafter" src="https://img.shields.io/npm/v/burnafter?label=burnafter&style=flat-square"></a>
-  <a href="https://www.npmjs.com/package/@lighthouse-explorer/light-parser"><img alt="light-parser" src="https://img.shields.io/npm/v/@lighthouse-explorer/light-parser?label=light-parser&style=flat-square"></a>
-</p>
+> Concept, motivation, and the broader case for edge-first vibration analytics live in [`docs/DOC.md`](docs/DOC.md). This README covers what's running and how to run it.
 
 ---
 
-Zero Trust ain't just for infra. Don't trust this file either, verify it.
+## Prerequisites
 
-<details>
-<summary>Verify this README</summary>
-
-```
-gpg --keyserver keys.openpgp.org --recv-keys 2A49CD4AF95F76DF38FC1F9EBFB3563375149683
-curl -sO https://raw.githubusercontent.com/casablanque-code/casablanque-code/main/README.md
-curl -sO https://raw.githubusercontent.com/casablanque-code/casablanque-code/main/README.md.sig
-gpg --verify README.md.sig README.md
-```
-
-</details>
+| Requirement | Version |
+|---|---|
+| Go | 1.22+ |
+| Docker + Docker Compose | 24.0+ |
+| Python | 3.10+ |
 
 ---
 
-<p align="left">
-  <a href="mailto:casablanque@proton.me"><img alt="reach me out" src="https://img.shields.io/badge/reach%20me%20out-casablanque%40proton.me-6d4aff?style=flat-square&logo=protonmail&logoColor=white"></a>
-  <a href="https://keys.openpgp.org/search?q=2A49CD4AF95F76DF38FC1F9EBFB3563375149683"><img alt="PGP" src="https://img.shields.io/badge/PGP-0x75149683-2e7d32?style=flat-square&logo=gnuprivacyguard&logoColor=white"></a>
-  <a href="https://ko-fi.com/casablanque"><img alt="Ko-fi" src="https://img.shields.io/badge/Ko--fi-support-ff5e5b?style=flat-square&logo=kofi&logoColor=white"></a>
-</p>
+## Architecture
+
+```
+┌────────────────────┐                     ┌─────────────────────────┐
+│   Sensor source     │   serial / JSONL    │      Edge Engine (Go)    │
+│  USB / RS-485 / sim  ├────────────────────>│  FFT → SDT → Z-score    │
+└────────────────────┘                     │  Multi-sensor Manager   │
+                                            └────────────┬─────────────┘
+                                                          │ MQTT 3.1.1 (QoS 1)
+                                                          │ sm/telemetry/<id>
+                                                          │ sm/anomaly/<id>
+                                                          ▼
+┌────────────────────┐    HTTP INSERT       ┌─────────────────────────┐
+│  ClickHouse (OLAP)   │<─────────────────────┤    Telegraf Agent       │
+└──────────┬───────────┘     batched writes  │   (MQTT consumer)        │
+           │ SQL                              └─────────────────────────┘
+           ▼
+┌────────────────────┐
+│      Grafana         │
+│ (auto-provisioned)   │
+└────────────────────┘
+```
+
+The stack is split into two independently deployable units:
+
+- **`edge/`** — runs on the device next to the sensor (Raspberry Pi, industrial gateway, or a laptop for local dev). Reads raw samples, runs the full DSP pipeline, publishes only structural updates over MQTT.
+- **`core/`** — runs on a server or laptop on the same network. Mosquitto broker, Telegraf ingestion, ClickHouse storage, Grafana dashboards. One compose file for the whole stack.
+
+Both sides are configured entirely through `.env` files — the edge binary itself is never rebuilt to switch sensor interface, sensor ID, or broker address.
+
+---
+
+## Repository Structure
+
+```
+avenge/
+├── firmware-sim/                # Hardware-free signal generator (Python)
+├── edge/                        # AVENGE engine (Go)
+│   ├── cmd/edge-filter/         # Pipeline entrypoint, graceful shutdown
+│   ├── internal/                # sensor, fft, filter (SDT), anomaly, scoring, mqtt, envfile
+│   ├── Dockerfile               # Multi-stage build -> distroless, ARM64-ready
+│   ├── compose.yaml             # Deploy target: Raspberry Pi / edge device
+│   └── .env.example
+├── core/                        # Central analytics stack
+│   ├── compose.yaml             # Mosquitto + Telegraf + ClickHouse + Grafana + Caddy
+│   ├── Caddyfile                # grafana.localhost -> grafana:3000
+│   ├── .env.example
+│   ├── mosquitto/               # config, ACL, gen-passwd.sh
+│   ├── telegraf/
+│   ├── clickhouse/              # init.sql, init.sh, users.d/ (service accounts)
+│   └── grafana/provisioning/    # Auto-provisioned datasource + dashboard
+└── docs/
+    ├── DOC.md                   # Concept, algorithms, security model
+    └── OPERATIONS.md            # Ports, first run, secrets, troubleshooting
+```
+
+---
+
+## Configuration
+
+Both `edge/` and `core/` read a local, gitignored `.env`:
+
+```
+cp core/.env.example core/.env
+cp edge/.env.example edge/.env
+```
+
+Passwords, which file owns which, and how to change them: [`docs/OPERATIONS.md`](docs/OPERATIONS.md#secrets-who-owns-what).
+
+`edge/.env` selects the sensor source (`SERIAL_INTERFACE`), the core address (`CENTRAL_HOST`) and the MQTT credentials. Run directly (no Docker), the binary loads `edge/.env` itself. Priority, highest to lowest: CLI flag (`--broker`), shell-exported env var, `edge/.env`, built-in default.
+
+---
+
+## Running Locally
+
+Everything on one machine, with the simulator as the sensor.
+
+```
+# 1. Core stack (set passwords in core/.env first)
+core/mosquitto/gen-passwd.sh
+docker compose -f core/compose.yaml up -d
+core/clickhouse/init.sh
+docker compose -f core/compose.yaml restart telegraf
+
+# 2. Edge binary: set MQTT_USER=edge and MQTT_PASSWORD (= MQTT_EDGE_PASSWORD) in edge/.env
+cd edge && go build -o edge-filter ./cmd/edge-filter/ && cd ..
+
+# Normal mode - synthetic steady-state signal
+python3 firmware-sim/signal_generator.py stream \
+  | ./edge/edge-filter --broker localhost:1883 --sensor-id bearing_01
+
+# Fault injection - anomaly after 15 s
+python3 firmware-sim/signal_generator.py stream --anomaly-after 15 \
+  | ./edge/edge-filter --broker localhost:1883 --sensor-id bearing_01
+
+# Offline, no broker
+python3 firmware-sim/signal_generator.py batch --samples 8000 --anomaly \
+  | ./edge/edge-filter --no-mqtt --sensor-id bearing_01
+```
+
+Grafana: `http://grafana.localhost` (login `admin`, password `GRAFANA_ADMIN_PASSWORD` from `core/.env`). The **Vibration Monitor** dashboard is auto-provisioned: RMS timeline, SDT scatter, anomaly events table, compression ratio gauge.
+
+---
+
+## Running on Real Hardware
+
+Core: set `MQTT_BIND` in `core/.env` to the machine's LAN IP, then run the steps above.
+
+Edge device (Raspberry Pi or similar):
+
+```
+cp edge/.env.example edge/.env
+# set SERIAL_INTERFACE, SERIAL_PORT, DIALOUT_GID (getent group dialout),
+# CENTRAL_HOST=<core IP>, MQTT_PASSWORD=<MQTT_EDGE_PASSWORD>
+docker compose -f edge/compose.yaml up -d
+docker compose -f edge/compose.yaml logs -f avenge-edge
+```
+
+The image is published to `ghcr.io/casablanque-code/avenge-edge` by the Release workflow on a `v*.*.*` tag (the package must be public, or run `docker login ghcr.io` on the device). Pin the version with `AVENGE_EDGE_TAG`. Exactly one serial device is passed into the container (`SERIAL_PORT`).
+
+---
+
+## Data Schema
+
+| MQTT Topic | Payload | Frequency |
+|---|---|---|
+| `sm/telemetry/<sensor_id>` | SDT turning points + window RMS | Every ~10s (20 windows) |
+| `sm/anomaly/<sensor_id>` | State transition (`onset` / `clear`) | On state change only |
+
+| ClickHouse Table | Engine | TTL | Purpose |
+|---|---|---|---|
+| `iot.telemetry` | MergeTree | 30 days | Compressed vibration points |
+| `iot.anomaly_events` | MergeTree | 90 days | Alert history |
+| `iot.telemetry_1m` | SummingMergeTree (MV) | — | 1-minute RMS aggregates |
+
+---
+
+## Technology Stack
+
+| Component | Technology |
+|---|---|
+| Edge engine | Go 1.22, stdlib + raw syscalls for serial I/O |
+| Signal generator | Python 3.10+ |
+| MQTT broker | Eclipse Mosquitto 2.0 |
+| Ingestion agent | InfluxData Telegraf 1.30 |
+| Time-series database | ClickHouse 24.3 |
+| Dashboards | Grafana 10.4 |
+| Containerization | Docker Compose, distroless runtime image |
+
+---
+
+## Status
+
+- [x] Cooley-Tukey FFT, zero-alloc processor
+- [x] Bristol SDT compression
+- [x] Stateful Z-score detector with anti-adaptation interlock
+- [x] MQTT 3.1.1 client (stdlib only) + resilient auto-reconnect wrapper
+- [x] Frequency band-specific anomaly filtering
+- [x] Multi-sensor orchestration (`sensor.Manager`)
+- [x] Graceful shutdown (context cancellation, drained MQTT buffer)
+- [x] Hardware serial input (USB / RS-485), interface selected via `.env`
+- [x] Externalized configuration — no rebuild needed to change deployment target
+- [x] `.env` auto-loaded by the binary directly, not just by Docker Compose
+- [x] Dockerfile for edge binary (ARM64, distroless)
+- [ ] Real sensor hardware validation (Raspberry Pi + ADXL345/MPU6050 bench test)
+- [ ] Outbound alert webhooks (Slack, PagerDuty)
+- [ ] Edge REST API for runtime configuration
+- [x] CI: automated build + test on push, image publish on tag
+- [x] MQTT authentication + per-user ACL, least-privilege ClickHouse accounts, Caddy proxy
+- [ ] MQTT over TLS
+- [ ] "Sensor went silent" alert
