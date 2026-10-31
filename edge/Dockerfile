@@ -17,7 +17,7 @@
 # ── Build stage ──────────────────────────────────────────────────────────
 # golang:1.22-alpine matches go.mod (go 1.22). Alpine keeps the build
 # image small; CGO is disabled below so musl/glibc differences don't matter.
-FROM golang:1.22-alpine AS builder
+FROM golang:1.27-alpine AS builder
 
 WORKDIR /src
 
