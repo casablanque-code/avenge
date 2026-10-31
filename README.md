@@ -30,9 +30,9 @@ A Go-based edge computing engine for real-time vibration analytics, inline signa
                                                           │ sm/telemetry/<id>
                                                           │ sm/anomaly/<id>
                                                           ▼
-┌────────────────────┐    Native TCP bulk   ┌─────────────────────────┐
+┌────────────────────┐    HTTP INSERT       ┌─────────────────────────┐
 │  ClickHouse (OLAP)   │<─────────────────────┤    Telegraf Agent       │
-└──────────┬───────────┘     ingestion       │   (MQTT consumer)        │
+└──────────┬───────────┘     batched writes  │   (MQTT consumer)        │
            │ SQL                              └─────────────────────────┘
            ▼
 ┌────────────────────┐
@@ -44,7 +44,7 @@ A Go-based edge computing engine for real-time vibration analytics, inline signa
 The stack is split into two independently deployable units:
 
 - **`edge/`** — runs on the device next to the sensor (Raspberry Pi, industrial gateway, or a laptop for local dev). Reads raw samples, runs the full DSP pipeline, publishes only structural updates over MQTT.
-- **`core/`** — runs on a server or laptop on the same network. Mosquitto broker, Telegraf ingestion, ClickHouse storage, Grafana dashboards. One `docker compose up` for the whole stack.
+- **`core/`** — runs on a server or laptop on the same network. Mosquitto broker, Telegraf ingestion, ClickHouse storage, Grafana dashboards. One compose file for the whole stack.
 
 Both sides are configured entirely through `.env` files — the edge binary itself is never rebuilt to switch sensor interface, sensor ID, or broker address.
 
@@ -55,120 +55,61 @@ Both sides are configured entirely through `.env` files — the edge binary itse
 ```
 avenge/
 ├── firmware-sim/                # Hardware-free signal generator (Python)
-│   ├── signal_generator.py      # Synthetic sensor output: normal + bearing fault modes
-│   └── inspect.py               # ASCII sparkline visualizer
 ├── edge/                        # AVENGE engine (Go)
-│   ├── cmd/edge-filter/main.go  # Pipeline entrypoint, graceful shutdown
-│   ├── Dockerfile               # Multi-stage build → distroless, ARM64-ready
-│   ├── docker-compose.yml       # Deploy target: Raspberry Pi / edge device
+│   ├── cmd/edge-filter/         # Pipeline entrypoint, graceful shutdown
+│   ├── internal/                # sensor, fft, filter (SDT), anomaly, scoring, mqtt, envfile
+│   ├── Dockerfile               # Multi-stage build -> distroless, ARM64-ready
+│   ├── compose.yaml             # Deploy target: Raspberry Pi / edge device
+│   └── .env.example
+├── core/                        # Central analytics stack
+│   ├── compose.yaml             # Mosquitto + Telegraf + ClickHouse + Grafana + Caddy
+│   ├── Caddyfile                # grafana.localhost -> grafana:3000
 │   ├── .env.example
-│   └── internal/
-│       ├── sensor/              # SampleSource: stdin/JSONL reader + SerialReader (USB/RS-485)
-│       ├── envfile/              # Minimal .env loader (no deps), shell env always wins
-│       ├── fft/                 # Cooley-Tukey FFT + zero-alloc processor
-│       ├── filter/               # Swinging Door Trending compression
-│       ├── anomaly/             # RMS + Z-score stateful detector, band-specific filtering
-│       └── mqtt/                # MQTT 3.1.1 client, resilient reconnect wrapper, publisher
-└── core/                         # Central analytics stack
-    ├── docker-compose.yml       # Mosquitto + Telegraf + ClickHouse + Grafana
-    ├── .env.example
-    ├── mosquitto/config/
-    ├── telegraf/
-    ├── clickhouse/               # DDL: telemetry, anomaly_events, telemetry_1m MV
-    └── grafana/provisioning/    # Auto-provisioned datasource + dashboard
+│   ├── mosquitto/               # config, ACL, gen-passwd.sh
+│   ├── telegraf/
+│   ├── clickhouse/              # init.sql, init.sh, users.d/ (service accounts)
+│   └── grafana/provisioning/    # Auto-provisioned datasource + dashboard
+└── docs/
+    ├── DOC.md                   # Concept, algorithms, security model
+    └── OPERATIONS.md            # Ports, first run, secrets, troubleshooting
 ```
 
 ---
 
 ## Configuration
 
-Both `edge/` and `core/` read from a local `.env` (gitignored). Copy the example and adjust:
+Both `edge/` and `core/` read a local, gitignored `.env`:
 
-```bash
+```
 cp core/.env.example core/.env
 cp edge/.env.example edge/.env
 ```
 
-**`edge/.env`** — selects the sensor source and where to send data:
+Passwords, which file owns which, and how to change them: [`docs/OPERATIONS.md`](docs/OPERATIONS.md#secrets-who-owns-what).
 
-```env
-SERIAL_INTERFACE=usb        # usb | rs485 | (unset → stdin, for local dev with firmware-sim)
-USB_PORT=/dev/ttyACM0
-RS485_PORT=/dev/ttyUSB0
-RS485_BAUD=230400
-SENSOR_ID=bearing_01
-CENTRAL_HOST=192.168.1.50   # IP of the machine running core/
-```
-
-**`core/.env`** — broker, database credentials, exposed ports:
-
-```env
-CLICKHOUSE_USER=default
-CLICKHOUSE_PASSWORD=changeme
-GRAFANA_ADMIN_PASSWORD=changeme
-```
-
-Switching from local dev (everything on one laptop) to a real deployment (edge device + separate server) is a `.env` edit, not a code or rebuild change.
-
-**`core/.env`** is read by Docker Compose only — values reach containers via `environment:` blocks in `core/compose.yaml`. Your shell does not see them automatically; commands that need `$CLICKHOUSE_PASSWORD` directly (step 2 below) require an explicit `export` first.
-
-**`edge/.env`** is read two ways, and both stay consistent:
-- Inside a container, Docker Compose passes it via `env_file:`.
-- Run directly (`./edge/edge-filter`, no Docker), the binary loads `edge/.env` itself on startup — no `export` needed.
-
-Priority, highest to lowest: CLI flag (`--broker`) → shell-exported env var → `edge/.env` → built-in default (`localhost:1883`). A value already set in the shell is never overwritten by the file.
+`edge/.env` selects the sensor source (`SERIAL_INTERFACE`), the core address (`CENTRAL_HOST`) and the MQTT credentials. Run directly (no Docker), the binary loads `edge/.env` itself. Priority, highest to lowest: CLI flag (`--broker`), shell-exported env var, `edge/.env`, built-in default.
 
 ---
 
 ## Running Locally
 
-### 1. Core stack
+Everything on one machine, with the simulator as the sensor.
 
-```bash
-cd core
-docker compose up -d
-docker compose ps   # wait for clickhouse + mosquitto + grafana healthy
 ```
+# 1. Core stack (set passwords in core/.env first)
+core/mosquitto/gen-passwd.sh
+docker compose -f core/compose.yaml up -d
+core/clickhouse/init.sh
+docker compose -f core/compose.yaml restart telegraf
 
-### 2. ClickHouse schema (first run only)
+# 2. Edge binary: set MQTT_USER=edge and MQTT_PASSWORD (= MQTT_EDGE_PASSWORD) in edge/.env
+cd edge && go build -o edge-filter ./cmd/edge-filter/ && cd ..
 
-ClickHouse 24.3-alpine has a known issue where multi-statement `docker-entrypoint-initdb.d` scripts cause a double-process startup. Schema is applied manually. The password is read directly from `core/.env` via command substitution — this avoids `export`, which would otherwise persist in your shell session and silently override `.env` values in later `docker compose` commands:
-
-```bash
-# run from inside core/
-docker exec sm_clickhouse clickhouse-client \
-  --user default --password "$(grep CLICKHOUSE_PASSWORD .env | cut -d= -f2)" \
-  --query "CREATE DATABASE IF NOT EXISTS iot"
-
-docker exec -i sm_clickhouse clickhouse-client \
-  --user default --password "$(grep CLICKHOUSE_PASSWORD .env | cut -d= -f2)" --multiquery \
-  < clickhouse/init.sql
-
-docker compose restart telegraf
-```
-
-Verify:
-
-```bash
-docker exec sm_clickhouse clickhouse-client \
-  --user default --password "$(grep CLICKHOUSE_PASSWORD .env | cut -d= -f2)" \
-  --query "SHOW TABLES FROM iot"
-```
-
-Expected: `anomaly_events`, `mv_anomaly_parse`, `mv_telemetry_1m`, `mv_telemetry_parse`, `telemetry`, `telemetry_1m`, `telemetry_raw`.
-
-### 3. Build and run the edge binary
-
-```bash
-cd ../edge
-go build -o edge-filter ./cmd/edge-filter/
-cd ..
-
-# Normal mode — synthetic steady-state signal
+# Normal mode - synthetic steady-state signal
 python3 firmware-sim/signal_generator.py stream \
   | ./edge/edge-filter --broker localhost:1883 --sensor-id bearing_01
 
-# Fault injection — anomaly after 15s
+# Fault injection - anomaly after 15 s
 python3 firmware-sim/signal_generator.py stream --anomaly-after 15 \
   | ./edge/edge-filter --broker localhost:1883 --sensor-id bearing_01
 
@@ -177,25 +118,25 @@ python3 firmware-sim/signal_generator.py batch --samples 8000 --anomaly \
   | ./edge/edge-filter --no-mqtt --sensor-id bearing_01
 ```
 
-### 4. Grafana
-
-`http://grafana.localhost` — credentials from `GRAFANA_ADMIN_PASSWORD` in `core/.env`. The **Vibration Monitor** dashboard is auto-provisioned: RMS timeline, SDT scatter, anomaly events table, compression ratio gauge.
+Grafana: `http://grafana.localhost` (login `admin`, password `GRAFANA_ADMIN_PASSWORD` from `core/.env`). The **Vibration Monitor** dashboard is auto-provisioned: RMS timeline, SDT scatter, anomaly events table, compression ratio gauge.
 
 ---
 
 ## Running on Real Hardware
 
+Core: set `MQTT_BIND` in `core/.env` to the machine's LAN IP, then run the steps above.
+
 Edge device (Raspberry Pi or similar):
 
-```bash
+```
 cp edge/.env.example edge/.env
-# set SERIAL_INTERFACE=usb (or rs485), CENTRAL_HOST=<core stack IP>
-docker compose -f edge/docker-compose.yml up -d
+# set SERIAL_INTERFACE, SERIAL_PORT, DIALOUT_GID (getent group dialout),
+# CENTRAL_HOST=<core IP>, MQTT_PASSWORD=<MQTT_EDGE_PASSWORD>
+docker compose -f edge/compose.yaml up -d
+docker compose -f edge/compose.yaml logs -f avenge-edge
 ```
 
-The container image is built separately and pushed to a registry — see `edge/Dockerfile` for the multi-stage ARM64 build. The compose file mounts both `/dev/ttyACM0` and `/dev/ttyUSB0`; Docker ignores whichever doesn't exist on the host, so the same file works for USB and RS-485 setups without editing.
-
-Core stack runs unchanged on a server or laptop on the same network — only `CENTRAL_HOST` in `edge/.env` needs to point at it.
+The image is published to `ghcr.io/casablanque-code/avenge-edge` by the Release workflow on a `v*.*.*` tag (the package must be public, or run `docker login ghcr.io` on the device). Pin the version with `AVENGE_EDGE_TAG`. Exactly one serial device is passed into the container (`SERIAL_PORT`).
 
 ---
 
@@ -244,4 +185,7 @@ Core stack runs unchanged on a server or laptop on the same network — only `CE
 - [ ] Real sensor hardware validation (Raspberry Pi + ADXL345/MPU6050 bench test)
 - [ ] Outbound alert webhooks (Slack, PagerDuty)
 - [ ] Edge REST API for runtime configuration
-- [ ] CI: automated build + test on push, image publish on tag
+- [x] CI: automated build + test on push, image publish on tag
+- [x] MQTT authentication + per-user ACL, least-privilege ClickHouse accounts, Caddy proxy
+- [ ] MQTT over TLS
+- [ ] "Sensor went silent" alert

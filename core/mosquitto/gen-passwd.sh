@@ -40,6 +40,12 @@ hash_line() {
     'mosquitto_passwd -c -b /tmp/p "$1" "$2" >/dev/null 2>&1 && cat /tmp/p' _ "$1" "$2"
 }
 
+# If the stack was started before this script ever ran, Docker created an
+# empty directory at the bind-mount path; replace it with the real file.
+if [[ -d "$OUT" ]]; then
+  rmdir "$OUT" 2>/dev/null || { echo "error: $OUT is a non-empty directory; remove it manually" >&2; exit 1; }
+fi
+
 umask 022
 { hash_line edge "$EDGE_PW"; hash_line telegraf "$TELEGRAF_PW"; } > "$OUT.tmp"
 mv "$OUT.tmp" "$OUT"

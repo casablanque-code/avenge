@@ -47,7 +47,7 @@ FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=builder /out/edge-filter /usr/local/bin/edge-filter
 
 # nonroot user (uid 65532) from the base image. Serial device access on
-# the host is granted via `group_add` + udev rule (see edge/docker-compose.yml
+# the host is granted via `group_add` + udev rule (see edge/compose.yaml
 # comments) rather than running as root in the container.
 USER nonroot:nonroot
 
