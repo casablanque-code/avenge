@@ -1,0 +1,17 @@
+---
+extends: default
+
+ignore: |
+  core/grafana/plugins/
+
+rules:
+  line-length: disable
+  document-start: disable
+  comments:
+    min-spaces-from-content: 1
+  comments-indentation: disable
+  colons:
+    max-spaces-after: -1
+  truthy:
+    allowed-values: ["true", "false", "on"]
+    check-keys: false
