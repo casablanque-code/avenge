@@ -2,6 +2,8 @@
 
 **Anomaly Vibration Edge Network Go Engine**
 
+[![CI](https://github.com/casablanque-code/avenge/actions/workflows/ci.yml/badge.svg)](https://github.com/casablanque-code/avenge/actions/workflows/ci.yml)
+
 A Go-based edge computing engine for real-time vibration analytics, inline signal compression, and predictive anomaly detection. Zero external runtime dependencies, zero-heap-allocation hot path.
 
 > Concept, motivation, and the broader case for edge-first vibration analytics live in [`docs/DOC.md`](docs/DOC.md). This README covers what's running and how to run it.
@@ -69,9 +71,14 @@ avenge/
 │   ├── telegraf/
 │   ├── clickhouse/              # init.sql (applied automatically), users.d/ (service accounts)
 │   └── grafana/provisioning/    # Auto-provisioned datasource + dashboard
+├── tests/
+│   ├── e2e/run.sh               # Full-stack end-to-end test (Docker)
+│   └── lint/repo-checks.sh      # .env.example and docs consistency checks
+├── .github/                     # CI, release workflow, Dependabot
 └── docs/
     ├── DOC.md                   # Concept, algorithms, security model
-    └── OPERATIONS.md            # Ports, first run, secrets, troubleshooting
+    ├── OPERATIONS.md            # Ports, first run, accounts, secrets, troubleshooting
+    └── TESTING.md               # What CI checks and how to run it locally
 ```
 
 ---

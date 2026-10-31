@@ -1,0 +1,16 @@
+version: 2
+updates:
+  # Workflow actions are pinned by commit SHA; Dependabot keeps the SHAs current.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # Base images of the edge Dockerfile (Go toolchain, distroless).
+  - package-ecosystem: docker
+    directory: /edge
+    schedule:
+      interval: weekly
