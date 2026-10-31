@@ -10,11 +10,12 @@
 # Data flow:
 #   edge-filter -> MQTT(mosquitto) -> Telegraf -> ClickHouse -> Grafana
 #
-# First-time setup (after `docker compose up -d`):
-#   1. Wait for clickhouse to become healthy: docker compose ps
-#   2. Create MQTT users:   mosquitto/gen-passwd.sh
-#   3. Apply the schema:    clickhouse/init.sh
-#   4. Restart consumers:   docker compose restart telegraf
+# First-time setup (see ../docs/OPERATIONS.md):
+#   1. Fill in passwords:   cp .env.example .env
+#   2. Create MQTT users:   mosquitto/gen-passwd.sh   (BEFORE the first `up`)
+#   3. Start the stack:     docker compose up -d
+#   4. Apply the schema:    clickhouse/init.sh        (needs a healthy clickhouse)
+#   5. Restart consumers:   docker compose restart telegraf
 #
 # Start:  docker compose up -d
 # Stop:   docker compose down        (use -v to also wipe ClickHouse data)

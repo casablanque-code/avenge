@@ -49,35 +49,42 @@ Instead of transmitting raw signals, the system extracts features, detects anoma
 ## 4. System Architecture
 
 ```
-Sensors → MQTT → Edge Engine → ClickHouse → Grafana
+Sensor -> Edge Engine -> MQTT -> Telegraf -> ClickHouse -> Grafana
 ```
 
 ### Components
 
 #### Sensors
 
-Produce high-frequency vibration signals.
-
-#### MQTT Layer
-
-Acts as a lightweight, scalable transport for sensor data.
+Produce high-frequency vibration signals (USB or RS-485 serial, or a simulator).
 
 #### Edge Engine (Go)
 
-Performs:
+Runs next to the sensor and performs:
 
 * Signal buffering
 * FFT transformation
 * Feature extraction (RMS, band energy)
-* Anomaly detection
+* Compression of the RMS trend (Swinging Door Trending)
+* Anomaly detection and combined scoring
+
+Only compressed features and state transitions leave the device, not raw samples.
+
+#### MQTT Layer
+
+Lightweight transport between edge devices and the central stack (MQTT 3.1.1, QoS 1). The broker requires authentication and enforces per-user topic ACLs.
+
+#### Ingestion (Telegraf)
+
+Subscribes to the MQTT topics and writes the messages into ClickHouse over HTTP.
 
 #### Storage (ClickHouse)
 
-Stores time-series data for analysis and visualization.
+Stores time-series data for analysis and visualization. Materialized views parse the raw messages into typed tables and per-minute aggregates.
 
 #### Visualization (Grafana)
 
-Provides real-time dashboards and anomaly tracking.
+Provides real-time dashboards and anomaly tracking, reached through a local reverse proxy (Caddy).
 
 ---
 
@@ -99,6 +106,9 @@ The edge engine processes incoming data in a streaming pipeline:
 
 4. **Normalization**
    Ensures consistent scaling across windows.
+
+5. **Compression (SDT)**
+   The window RMS trend is compressed with Swinging Door Trending: only turning points that leave the deadband are kept and published.
 
 ---
 
@@ -139,7 +149,7 @@ To prevent oscillation around thresholds:
 * Entry threshold: detects anomaly onset
 * Exit threshold: confirms return to normal
 
-This stabilizes state transitions and reduces noise.
+This stabilizes state transitions and reduces noise. Defaults: the RMS detector enters at z > 3.5 and exits at z <= 2.5; band detectors enter at z > 4.0 and exit at z <= 2.5.
 
 ---
 
@@ -151,7 +161,11 @@ Instead of binary classification, anomalies are categorized:
 * Warning
 * Critical
 
-This enables prioritization and better visualization.
+This enables prioritization and better visualization. With the default thresholds, a z-score above 2.5 is a warning and above 3.5 is critical.
+
+### 6.5 Combined Scoring
+
+The RMS detector and the per-band detector run independently. The final decision takes the more alarming of the two z-scores ("max wins"), so a strong band-specific signal is not hidden by a calm overall RMS. The result is published as `final_score` together with the `dominant_signal` that produced it.
 
 ---
 
@@ -162,6 +176,8 @@ Beyond global RMS, A.V.E.N.G.E supports band-based detection:
 * Signal spectrum is divided into frequency bands
 * Each band maintains its own baseline
 * Weighted scoring highlights critical frequency ranges
+
+The default bands for a 1 kHz-class sensor are `shaft` (0-50 Hz), `harmonic` (50-150 Hz), `fault` (150-400 Hz) and `hf_noise` (400 Hz to Nyquist).
 
 This allows detection of:
 
@@ -202,15 +218,26 @@ This allows detection of:
 
 ## 11. Future Work
 
-* Multi-sensor orchestration
 * Adaptive thresholds per operating mode
-* MQTT reliability (buffering, QoS)
-* Alerting and integration (webhooks, messaging)
+* Alerting and integration (webhooks, messaging) and a "sensor went silent" alert
+* TLS for MQTT (the current client is plaintext, intended for a trusted LAN)
 * Advanced spectral analysis (peak tracking, harmonics)
+* Validation on real sensor hardware
 
 ---
 
-## 12. Conclusion
+## 12. Security Model
+
+* MQTT: no anonymous access; `edge` may only publish telemetry and anomaly topics, `telegraf` may only read them.
+* ClickHouse: Telegraf may only INSERT into the landing table, Grafana is read-only; the admin account is used for manual work only.
+* Network: ClickHouse is bound to localhost, Grafana is reachable only through the local proxy, the MQTT port is bound to a chosen interface.
+* Limitation: MQTT is not encrypted. Keep it on a trusted network or add a TLS-terminating layer.
+
+Operational details and credential handling: [OPERATIONS.md](OPERATIONS.md).
+
+---
+
+## 13. Conclusion
 
 A.V.E.N.G.E demonstrates that effective anomaly detection does not require heavy machine learning models or centralized infrastructure.
 

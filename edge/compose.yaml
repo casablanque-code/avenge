@@ -10,7 +10,7 @@
 #   2. Copy edge/.env.example to edge/.env and fill it in.
 #   3. Find the dialout GID on the Pi:  getent group dialout
 #      and set DIALOUT_GID in edge/.env.
-#   4. On the Pi: docker compose -f edge/docker-compose.yml up -d
+#   4. On the Pi: docker compose -f edge/compose.yaml up -d
 #
 # Exactly one serial device is passed through: SERIAL_PORT.
 # SERIAL_INTERFACE (usb | rs485) only selects the baud-rate handling.
