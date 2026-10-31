@@ -281,6 +281,7 @@ type Manager struct {
 type workerHandle struct {
 	worker *SensorWorker
 	input  chan Sample
+	ctx    context.Context
 	cancel context.CancelFunc
 }
 
@@ -306,6 +307,7 @@ func (m *Manager) Add(cfg SensorConfig) error {
 	h := &workerHandle{
 		worker: newSensorWorker(cfg),
 		input:  make(chan Sample, cfg.FFTWindow*2), // buffer ~2 windows
+		ctx:    ctx,
 		cancel: cancel,
 	}
 
@@ -351,6 +353,26 @@ func (m *Manager) Send(id string, s Sample) {
 		// Input buffer full — drop sample and log.
 		// In production this would increment a Prometheus counter.
 		fmt.Printf("[manager] DROP sample for sensor %s — input buffer full\n", id)
+	}
+}
+
+// SendBlocking delivers a sample to the sensor with the given ID and waits
+// while the sensor's input buffer is full, instead of dropping the sample.
+// Use it for replayed or batch input (a file or pipe), where applying
+// backpressure to the producer is correct and every sample must be
+// processed. Live sources should use Send, which never blocks.
+// It returns when the sample is accepted or the sensor is removed.
+func (m *Manager) SendBlocking(id string, s Sample) {
+	m.mu.RLock()
+	h, ok := m.workers[id]
+	m.mu.RUnlock()
+	if !ok {
+		return
+	}
+
+	select {
+	case h.input <- s:
+	case <-h.ctx.Done():
 	}
 }
 

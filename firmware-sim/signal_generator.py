@@ -144,6 +144,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Vibration signal generator")
     sub = parser.add_subparsers(dest="mode", required=True)
 
+    parser.add_argument("--seed", type=int, default=None,
+                        help="Seed the noise generator for reproducible runs")
+
     b = sub.add_parser("batch")
     b.add_argument("--samples", type=int, default=4000)
     b.add_argument("--rate",    type=int, default=SAMPLE_RATE)
@@ -157,6 +160,8 @@ def main() -> None:
                    help="Samples per flush (default 100 = 100 ms at 1 kHz)")
 
     args = parser.parse_args()
+    if args.seed is not None:
+        random.seed(args.seed)
 
     if args.mode == "batch":
         records = generate_batch(args.samples, args.rate, args.anomaly)

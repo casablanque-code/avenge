@@ -91,6 +91,7 @@ func main() {
 	// USB and RS-485 use the same binary packet protocol and SerialReader —
 	// only the device path and baud rate differ.
 	var src sensor.SampleSource
+	replay := false // true for stdin (JSONL) input: block instead of dropping
 	switch iface := os.Getenv("SERIAL_INTERFACE"); iface {
 	case "usb", "rs485":
 		port := os.Getenv("USB_PORT")
@@ -117,6 +118,7 @@ func main() {
 			iface, port, baud, sensorCfg.SampleRate)
 	default:
 		src = sensor.NewReader(os.Stdin)
+		replay = true
 		fmt.Fprintln(os.Stderr, "serial source: stdin (JSONL)")
 	}
 
@@ -234,7 +236,13 @@ func main() {
 		if err != nil {
 			break // EOF or read error
 		}
-		mgr.Send(*sensorID, s)
+		if replay {
+			// Replayed input (file or pipe): apply backpressure instead of
+			// dropping samples, so results are reproducible.
+			mgr.SendBlocking(*sensorID, s)
+		} else {
+			mgr.Send(*sensorID, s)
+		}
 		totalSamples++
 	}
 
