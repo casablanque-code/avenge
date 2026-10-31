@@ -14,7 +14,7 @@ A Go-based edge computing engine for real-time vibration analytics, inline signa
 
 | Requirement | Version |
 |---|---|
-| Go | 1.22+ |
+| Go | 1.27+ |
 | Docker + Docker Compose | 24.0+ |
 | Python | 3.10+ |
 
@@ -163,7 +163,7 @@ The image is published to `ghcr.io/casablanque-code/avenge-edge` by the Release 
 
 | Component | Technology |
 |---|---|
-| Edge engine | Go 1.22, stdlib + raw syscalls for serial I/O |
+| Edge engine | Go 1.27, stdlib + raw syscalls for serial I/O |
 | Signal generator | Python 3.10+ |
 | MQTT broker | Eclipse Mosquitto 2.0 |
 | Ingestion agent | InfluxData Telegraf 1.30 |
