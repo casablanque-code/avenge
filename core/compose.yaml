@@ -6,18 +6,21 @@
 #   telegraf    MQTT -> ClickHouse bridge (no exposed ports)
 #   grafana     Dashboards (no published port — reached via caddy)
 #   caddy       Local reverse proxy: http://grafana.localhost (localhost:80)
+#   preflight, clickhouse-init   one-shot helpers (exit after running)
 #
 # Data flow:
 #   edge-filter -> MQTT(mosquitto) -> Telegraf -> ClickHouse -> Grafana
 #
-# First-time setup (see ../docs/OPERATIONS.md):
-#   1. Fill in passwords:   cp .env.example .env
-#   2. Create MQTT users:   mosquitto/gen-passwd.sh   (BEFORE the first `up`)
-#   3. Start the stack:     docker compose up -d
-#   4. Apply the schema:    clickhouse/init.sh        (needs a healthy clickhouse)
-#   5. Restart consumers:   docker compose restart telegraf
+# Start (first time and every time after):
+#   cp .env.example .env     # then set every password in .env
+#   docker compose up -d
+# Everything else is automatic and ordered by depends_on:
+#   preflight       rejects missing / placeholder / non-alphanumeric passwords
+#   mosquitto       builds its password file from .env at every start
+#   clickhouse-init applies the schema once ClickHouse is healthy (idempotent)
+#   telegraf, grafana start after the schema exists
+# Change a password: edit .env, run `docker compose up -d` (details: ../docs/OPERATIONS.md).
 #
-# Start:  docker compose up -d
 # Stop:   docker compose down        (use -v to also wipe ClickHouse data)
 # Logs:   docker compose logs -f telegraf
 
@@ -42,6 +45,33 @@ volumes:
 
 services:
 
+  # ── Preflight: fail fast on bad credentials ────────────────────────────
+  preflight:
+    image: alpine:3.20
+    container_name: sm_preflight
+    restart: "no"
+    network_mode: none
+    environment:
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?CLICKHOUSE_PASSWORD is not set}
+      CLICKHOUSE_TELEGRAF_PASSWORD: ${CLICKHOUSE_TELEGRAF_PASSWORD:?CLICKHOUSE_TELEGRAF_PASSWORD is not set}
+      CLICKHOUSE_GRAFANA_PASSWORD: ${CLICKHOUSE_GRAFANA_PASSWORD:?CLICKHOUSE_GRAFANA_PASSWORD is not set}
+      GRAFANA_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is not set}
+      MQTT_EDGE_PASSWORD: ${MQTT_EDGE_PASSWORD:?MQTT_EDGE_PASSWORD is not set}
+      MQTT_TELEGRAF_PASSWORD: ${MQTT_TELEGRAF_PASSWORD:?MQTT_TELEGRAF_PASSWORD is not set}
+    command:
+      - sh
+      - -c
+      - |
+        bad=0
+        for v in CLICKHOUSE_PASSWORD CLICKHOUSE_TELEGRAF_PASSWORD CLICKHOUSE_GRAFANA_PASSWORD GRAFANA_ADMIN_PASSWORD MQTT_EDGE_PASSWORD MQTT_TELEGRAF_PASSWORD; do
+          val=$$(printenv "$$v")
+          case "$$val" in
+            changeme) echo "ERROR: $$v is still the placeholder 'changeme' - set a real password in core/.env"; bad=1 ;;
+            *[!A-Za-z0-9]*) echo "ERROR: $$v must contain only letters and digits"; bad=1 ;;
+          esac
+        done
+        exit $$bad
+
   # ── MQTT Broker ────────────────────────────────────────────────────────
   mosquitto:
     image: eclipse-mosquitto:2.0
@@ -49,6 +79,9 @@ services:
     restart: unless-stopped
     logging: *default-logging
     networks: [iot]
+    depends_on:
+      preflight:
+        condition: service_completed_successfully
     ports:
       # MQTT (plaintext — PoC only). MQTT_BIND defaults to localhost; set it to
       # the LAN IP of this machine so the edge device can connect.
@@ -56,10 +89,21 @@ services:
     volumes:
       - ./mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
       - ./mosquitto/config/acl:/mosquitto/config/acl:ro
-      - ./mosquitto/config/passwd:/mosquitto/config/passwd:ro
       - mosquitto-data:/mosquitto/data
     environment:
+      MQTT_EDGE_PASSWORD: ${MQTT_EDGE_PASSWORD:?MQTT_EDGE_PASSWORD is not set}
       MQTT_TELEGRAF_PASSWORD: ${MQTT_TELEGRAF_PASSWORD:?MQTT_TELEGRAF_PASSWORD is not set}
+    # The password file is rebuilt from the environment on every start, so
+    # editing .env and running `docker compose up -d` is all a change needs.
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        mosquitto_passwd -c -b /mosquitto/config/passwd edge "$$MQTT_EDGE_PASSWORD"
+        mosquitto_passwd -b /mosquitto/config/passwd telegraf "$$MQTT_TELEGRAF_PASSWORD"
+        chown mosquitto:mosquitto /mosquitto/config/passwd 2>/dev/null || true
+        exec mosquitto -c /mosquitto/config/mosquitto.conf
     healthcheck:
       test: ["CMD-SHELL", "mosquitto_sub -u telegraf -P \"$$MQTT_TELEGRAF_PASSWORD\" -t '$$SYS/broker/uptime' -C 1 -W 2"]
       interval: 10s
@@ -73,6 +117,9 @@ services:
     restart: unless-stopped
     logging: *default-logging
     networks: [iot]
+    depends_on:
+      preflight:
+        condition: service_completed_successfully
     ports:
       - "127.0.0.1:8123:8123"   # HTTP (Grafana + Telegraf use the iot network)
       - "127.0.0.1:9000:9000"   # Native TCP
@@ -82,7 +129,7 @@ services:
       - ./clickhouse/users.d/avenge-users.xml:/etc/clickhouse-server/users.d/avenge-users.xml:ro
       # NOTE: init.sql is intentionally NOT mounted to
       # docker-entrypoint-initdb.d (double-process startup bug in the
-      # 24.3-alpine image). Apply the schema with clickhouse/init.sh.
+      # 24.3-alpine image). The clickhouse-init service applies it instead.
     environment:
       # Admin account — manual work and schema setup only.
       CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
@@ -102,6 +149,29 @@ services:
       timeout: 5s
       retries: 5
 
+  # ── Schema (one-shot, idempotent) ──────────────────────────────────────
+  clickhouse-init:
+    image: clickhouse/clickhouse-server:24.3-alpine
+    container_name: sm_clickhouse_init
+    restart: "no"
+    networks: [iot]
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    volumes:
+      - ./clickhouse/init.sql:/init.sql:ro
+    environment:
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?CLICKHOUSE_PASSWORD is not set}
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        set -e
+        ch() { clickhouse-client --host clickhouse --user "$$CLICKHOUSE_USER" --password "$$CLICKHOUSE_PASSWORD" "$$@"; }
+        ch --query "CREATE DATABASE IF NOT EXISTS iot"
+        ch --multiquery < /init.sql
+        echo "schema applied"
+
   # ── Telegraf (MQTT subscriber → ClickHouse writer) ─────────────────────
   telegraf:
     image: telegraf:1.30-alpine
@@ -112,8 +182,8 @@ services:
     depends_on:
       mosquitto:
         condition: service_healthy
-      clickhouse:
-        condition: service_healthy
+      clickhouse-init:
+        condition: service_completed_successfully
     volumes:
       - ./telegraf/telegraf.conf:/etc/telegraf/telegraf.conf:ro
     environment:
@@ -131,16 +201,14 @@ services:
     logging: *default-logging
     networks: [iot, proxy]
     depends_on:
-      clickhouse:
-        condition: service_healthy
+      clickhouse-init:
+        condition: service_completed_successfully
     volumes:
       - grafana-data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
-      # ClickHouse datasource plugin is NOT auto-installed via
-      # GF_INSTALL_PLUGINS — that requires reaching grafana.com, which is
-      # unreachable from this network. Instead the plugin zip is downloaded
-      # once and mounted read-only. See README "Deployment" for the
-      # download command.
+      # The ClickHouse datasource plugin is vendored in ./grafana/plugins
+      # (committed to the repo) instead of GF_INSTALL_PLUGINS, so the stack
+      # starts without reaching grafana.com.
       - ./grafana/plugins:/var/lib/grafana/plugins:ro
     environment:
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is not set}

@@ -65,9 +65,9 @@ avenge/
 │   ├── compose.yaml             # Mosquitto + Telegraf + ClickHouse + Grafana + Caddy
 │   ├── Caddyfile                # grafana.localhost -> grafana:3000
 │   ├── .env.example
-│   ├── mosquitto/               # config, ACL, gen-passwd.sh
+│   ├── mosquitto/               # config + ACL (users are built from .env at start)
 │   ├── telegraf/
-│   ├── clickhouse/              # init.sql, init.sh, users.d/ (service accounts)
+│   ├── clickhouse/              # init.sql (applied automatically), users.d/ (service accounts)
 │   └── grafana/provisioning/    # Auto-provisioned datasource + dashboard
 └── docs/
     ├── DOC.md                   # Concept, algorithms, security model
@@ -96,11 +96,8 @@ Passwords, which file owns which, and how to change them: [`docs/OPERATIONS.md`]
 Everything on one machine, with the simulator as the sensor.
 
 ```
-# 1. Core stack (set passwords in core/.env first)
-core/mosquitto/gen-passwd.sh
+# 1. Core stack: set every password in core/.env, then one command
 docker compose -f core/compose.yaml up -d
-core/clickhouse/init.sh
-docker compose -f core/compose.yaml restart telegraf
 
 # 2. Edge binary: set MQTT_USER=edge and MQTT_PASSWORD (= MQTT_EDGE_PASSWORD) in edge/.env
 cd edge && go build -o edge-filter ./cmd/edge-filter/ && cd ..
@@ -124,7 +121,7 @@ Grafana: `http://grafana.localhost` (login `admin`, password `GRAFANA_ADMIN_PASS
 
 ## Running on Real Hardware
 
-Core: set `MQTT_BIND` in `core/.env` to the machine's LAN IP, then run the steps above.
+Core: set `MQTT_BIND` in `core/.env` to the machine's LAN IP, then `docker compose -f core/compose.yaml up -d`.
 
 Edge device (Raspberry Pi or similar):
 

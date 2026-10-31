@@ -15,12 +15,16 @@ How to run, configure and maintain the AVENGE stack. Concept and algorithms: [DO
 Core (server or laptop):
 
 ```
-cp core/.env.example core/.env         # set every password
-core/mosquitto/gen-passwd.sh           # BEFORE the first `up` (creates the MQTT password file)
+cp core/.env.example core/.env         # set every password (letters and digits only)
 docker compose -f core/compose.yaml up -d
-core/clickhouse/init.sh                # needs a healthy sm_clickhouse
-docker compose -f core/compose.yaml restart telegraf
 ```
+
+That is all. Startup is ordered and checked automatically:
+
+1. `preflight` rejects missing, placeholder (`changeme`) and non-alphanumeric passwords with a readable message.
+2. `mosquitto` builds its password file from `.env` at every start.
+3. `clickhouse-init` applies the schema as soon as ClickHouse is healthy (idempotent, safe on every `up`).
+4. `telegraf` and `grafana` start once the schema exists.
 
 Edge (Raspberry Pi):
 
@@ -29,38 +33,57 @@ cp edge/.env.example edge/.env         # SERIAL_INTERFACE, CENTRAL_HOST, MQTT_PA
 docker compose -f edge/compose.yaml up -d
 ```
 
-## Secrets: who owns what
+## Accounts
 
-Compose reads `.env` only when containers are created. `docker compose restart` does **not** pick up changes; use
-`docker compose -f core/compose.yaml up -d --force-recreate <services>`.
+Usernames are fixed by the configuration; only passwords live in `.env`.
 
-| Variable                       | File        | Used by                                | To change                                                                 |
-| ------------------------------ | ----------- | -------------------------------------- | ------------------------------------------------------------------------- |
-| `CLICKHOUSE_PASSWORD`          | `core/.env` | Admin: `init.sh`, manual queries       | Recreate `clickhouse`.                                                    |
-| `CLICKHOUSE_TELEGRAF_PASSWORD` | `core/.env` | Telegraf to ClickHouse (INSERT only)   | Recreate `clickhouse telegraf`.                                           |
-| `CLICKHOUSE_GRAFANA_PASSWORD`  | `core/.env` | Grafana to ClickHouse (read-only)      | Recreate `clickhouse grafana`.                                            |
-| `MQTT_TELEGRAF_PASSWORD`       | `core/.env` | Telegraf to Mosquitto (read-only)      | Run `gen-passwd.sh`, recreate `mosquitto telegraf`.                       |
-| `MQTT_EDGE_PASSWORD`           | `core/.env` | Edge devices to Mosquitto (write-only) | Run `gen-passwd.sh`, recreate `mosquitto`, then update every edge `.env`. |
-| `MQTT_PASSWORD`                | `edge/.env` | Must equal `MQTT_EDGE_PASSWORD`        | Recreate `avenge-edge` on the device.                                     |
-| `GRAFANA_ADMIN_PASSWORD`       | `core/.env` | Grafana web login                      | Read only on Grafana's first start. For a live instance run `docker exec sm_grafana grafana cli admin reset-admin-password '<new>'` and update `.env`. |
+| Service            | Username                          | Purpose                          | Permissions                                   | Password variable (`core/.env`)  |
+| ------------------ | --------------------------------- | -------------------------------- | --------------------------------------------- | -------------------------------- |
+| Grafana (web)      | `admin`                           | Dashboard login                  | Admin                                         | `GRAFANA_ADMIN_PASSWORD`         |
+| ClickHouse (admin) | `default` (or `CLICKHOUSE_USER`)  | Manual queries, schema           | Everything                                    | `CLICKHOUSE_PASSWORD`            |
+| ClickHouse         | `telegraf`                        | Telegraf writes telemetry        | INSERT on `iot.telemetry_raw` only            | `CLICKHOUSE_TELEGRAF_PASSWORD`   |
+| ClickHouse         | `grafana`                         | Grafana reads                    | SELECT on `iot.*`, read-only                  | `CLICKHOUSE_GRAFANA_PASSWORD`    |
+| MQTT               | `edge`                            | Edge devices publish             | Write `sm/telemetry/#`, `sm/anomaly/#`        | `MQTT_EDGE_PASSWORD`             |
+| MQTT               | `telegraf`                        | Telegraf subscribes              | Read `sm/telemetry/#`, `sm/anomaly/#`, `$SYS` | `MQTT_TELEGRAF_PASSWORD`         |
 
-Rules: use letters and digits only (Telegraf puts its ClickHouse password into a URL). Never commit `.env` or `core/mosquitto/config/passwd`.
+The edge device stores the `edge` password as `MQTT_PASSWORD` (and the user as `MQTT_USER`) in `edge/.env`; the two values must match the core side.
+Source of truth: `core/mosquitto/config/acl` and `core/clickhouse/users.d/avenge-users.xml`.
+
+## Changing a password
+
+Edit `core/.env`, then run:
+
+```
+docker compose -f core/compose.yaml up -d
+```
+
+Compose notices the changed environment and recreates only the affected services; the broker rebuilds its password file and ClickHouse reloads its accounts on start. Then:
+
+- `MQTT_EDGE_PASSWORD`: put the same value into `MQTT_PASSWORD` in every `edge/.env` and run `docker compose -f edge/compose.yaml up -d` on each device.
+- `GRAFANA_ADMIN_PASSWORD`: Grafana reads it only on its first start. For a live instance run `docker exec sm_grafana grafana cli admin reset-admin-password '<new>'` and update `.env`.
+
+Plain `docker compose restart` does **not** pick up `.env` changes; always use `up -d`.
+
+Rules: letters and digits only. Never commit `.env`.
 
 ## Troubleshooting
 
-| Symptom                                           | Cause                                         | Fix |
-| ------------------------------------------------- | --------------------------------------------- | --- |
-| Telegraf log: `not authorised`                    | `passwd` is out of date                       | `gen-passwd.sh`, recreate `mosquitto telegraf`. |
-| Edge log: `CONNACK: ... not authorized`           | `MQTT_PASSWORD` differs from `MQTT_EDGE_PASSWORD` | Align the two, recreate `avenge-edge`. |
-| Telegraf log: `Not enough privileges`             | Views not yet switched to DEFINER security    | Run `core/clickhouse/init.sh`, restart `telegraf`. |
-| Grafana datasource error                          | Stale Grafana password                        | Recreate `clickhouse grafana`. |
-| Mosquitto fails, `passwd` is a directory          | `up` ran before `gen-passwd.sh`               | `rmdir core/mosquitto/config/passwd`, run `gen-passwd.sh`, `up -d`. |
-| Edge exits with permission denied on `/dev/tty*`  | Wrong `DIALOUT_GID` or `SERIAL_PORT`          | `getent group dialout` on the host, fix `edge/.env`. |
+| Symptom                                                 | Cause                                           | Fix |
+| ------------------------------------------------------- | ----------------------------------------------- | --- |
+| `required variable ... is missing a value`              | `core/.env` missing or incomplete               | `cp core/.env.example core/.env`, fill in every password. |
+| `preflight` prints `ERROR: ... placeholder` or `... only letters and digits` | Placeholder or unsupported character in a password | Fix the named variable in `core/.env`, run `up -d`. |
+| Telegraf log: `not authorised`                          | `.env` edited but containers not recreated      | `docker compose -f core/compose.yaml up -d`. |
+| Edge log: `CONNACK: ... not authorized`                 | `MQTT_PASSWORD` differs from `MQTT_EDGE_PASSWORD` | Align the two, `up -d` on the device. |
+| Telegraf log: `Not enough privileges`                   | Schema from an older version                    | `docker compose -f core/compose.yaml run --rm clickhouse-init`, then `up -d`. |
+| Grafana datasource error                                | Stale Grafana password                          | `docker compose -f core/compose.yaml up -d`. |
+| Edge exits with permission denied on `/dev/tty*`        | Wrong `DIALOUT_GID` or `SERIAL_PORT`            | `getent group dialout` on the host, fix `edge/.env`. |
 
 ## Health checks
 
 ```
-docker compose -f core/compose.yaml ps                   # all Up, grafana/clickhouse/mosquitto healthy
+docker compose -f core/compose.yaml ps                   # long-running services Up; grafana/clickhouse/mosquitto healthy
 ss -ltnp | grep -E ':(80|1883|8123|9000)\b'              # only 127.0.0.1, 1883 on $MQTT_BIND
 curl -sI http://grafana.localhost | head -1              # HTTP/1.1 302 Found
 ```
+
+`preflight` and `clickhouse-init` show as `Exited (0)`; that is expected.
