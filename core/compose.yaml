@@ -195,7 +195,7 @@ services:
 
   # ── Grafana ────────────────────────────────────────────────────────────
   grafana:
-    image: grafana/grafana:10.4.2
+    image: grafana/grafana:13.3.0
     container_name: sm_grafana
     restart: unless-stopped
     logging: *default-logging
