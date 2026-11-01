@@ -192,9 +192,9 @@ This allows detection of:
 ## 8. Performance Characteristics
 
 * Constant memory usage proportional to FFT window size
-* No heap allocations in the hot path after initialization
+* No heap allocations on the per-window path after initialization (enforced by tests); the periodic telemetry flush and an anomaly transition allocate a few small objects that are handed to the publisher
 * Low-latency processing suitable for real-time systems
-* Scalable to thousands of sensor streams (with proper orchestration)
+* One worker goroutine per sensor; how many sensors a single device can serve has not been measured
 
 ---
 
