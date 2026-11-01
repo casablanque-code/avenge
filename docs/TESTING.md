@@ -8,7 +8,7 @@ Every pull request and every push to `main` runs the same checks. The single req
 | ---------- | -------------- |
 | `edge`     | `gofmt`, `go vet`, build, `go test -race` with a coverage floor on `edge/internal/...`, and cross-build plus `go vet` for `linux/arm64` (Raspberry Pi), `darwin/arm64` and `windows/amd64` (development machines; serial input is Linux-only and stubbed elsewhere). Runs on the Go version in `go.mod` and on the latest stable Go. |
 | `vuln`     | `govulncheck` against the Go vulnerability database. |
-| `infra`    | Compose files resolve (`docker compose config`), `yamllint`, `shellcheck`, `hadolint`, `actionlint`, dashboard JSON validity, and `tests/lint/repo-checks.sh` (every required `.env` variable is in `.env.example`, no tracked `.env`, `passwd` or key files, every path and link in README/docs exists). |
+| `infra`    | Compose files resolve (`docker compose config`), `yamllint`, `shellcheck`, `hadolint`, `actionlint`, dashboard JSON validity, that every Mermaid diagram in the docs parses, and `tests/lint/repo-checks.sh` (every required `.env` variable is in `.env.example`, no tracked `.env`, `passwd` or key files, every path and link in README/docs exists). |
 | `image`    | Builds the edge image, verifies it runs as non-root, and replays a seeded signal through it (`--no-mqtt`) to check that no sample is dropped. |
 | `e2e`      | Starts the real core stack with `docker compose up -d` and throwaway passwords, then checks the items listed below. |
 | `secrets`  | `gitleaks` over the full git history. |
@@ -37,6 +37,12 @@ Repo consistency checks (seconds, no Docker):
 
 ```
 tests/lint/repo-checks.sh
+```
+
+Documentation diagrams (needs Node.js 20 or newer):
+
+```
+cd tests/lint/mermaid && npm ci && npm run check
 ```
 
 Full-stack end-to-end test (needs Docker with Compose v2, `python3`, `openssl`, `curl`; takes a few minutes and uses ports 80, 1883, 8123 and 9000 on localhost):

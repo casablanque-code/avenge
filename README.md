@@ -73,10 +73,11 @@ avenge/
 │   └── grafana/provisioning/    # Auto-provisioned datasource + dashboard
 ├── tests/
 │   ├── e2e/run.sh               # Full-stack end-to-end test (Docker)
-│   └── lint/repo-checks.sh      # .env.example and docs consistency checks
+│   └── lint/                    # repo-checks.sh (.env.example, docs paths), mermaid/ (diagram parse check)
 ├── .github/                     # CI, release workflow, Dependabot
 └── docs/
     ├── DOC.md                   # Concept, algorithms, security model
+    ├── ARCHITECTURE.md          # C4-style diagrams, deployment, data model, sequences
     ├── OPERATIONS.md            # Ports, first run, accounts, secrets, troubleshooting
     └── TESTING.md               # What CI checks and how to run it locally
 ```

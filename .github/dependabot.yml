@@ -21,3 +21,9 @@ updates:
     directory: /core
     schedule:
       interval: weekly
+
+  # Mermaid and jsdom, used only by the docs diagram check in CI.
+  - package-ecosystem: npm
+    directory: /tests/lint/mermaid
+    schedule:
+      interval: weekly
