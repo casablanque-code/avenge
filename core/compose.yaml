@@ -112,7 +112,7 @@ services:
 
   # ── ClickHouse ─────────────────────────────────────────────────────────
   clickhouse:
-    image: clickhouse/clickhouse-server:24.3-alpine
+    image: clickhouse/clickhouse-server:26.10-alpine
     container_name: sm_clickhouse
     restart: unless-stopped
     logging: *default-logging
@@ -151,7 +151,7 @@ services:
 
   # ── Schema (one-shot, idempotent) ──────────────────────────────────────
   clickhouse-init:
-    image: clickhouse/clickhouse-server:24.3-alpine
+    image: clickhouse/clickhouse-server:26.10-alpine
     container_name: sm_clickhouse_init
     restart: "no"
     networks: [iot]
