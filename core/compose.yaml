@@ -47,7 +47,7 @@ services:
 
   # ── Preflight: fail fast on bad credentials ────────────────────────────
   preflight:
-    image: alpine:3.20
+    image: alpine:3.24
     container_name: sm_preflight
     restart: "no"
     network_mode: none
