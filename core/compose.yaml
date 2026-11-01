@@ -174,7 +174,7 @@ services:
 
   # ── Telegraf (MQTT subscriber → ClickHouse writer) ─────────────────────
   telegraf:
-    image: telegraf:1.30-alpine
+    image: telegraf:1.40-alpine
     container_name: sm_telegraf
     restart: unless-stopped
     logging: *default-logging
