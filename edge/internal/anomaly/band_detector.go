@@ -122,6 +122,16 @@ func NewBandDetector(bands []FreqBand, cfg BandConfig) *BandDetector {
 // freqs and power must come from fft.PowerSpectrum (same length, same order).
 // Returns a BandResult describing the anomaly state of each band.
 func (bd *BandDetector) IngestSpectrum(freqs, power []float64) BandResult {
+	r := bd.Update(freqs, power)
+	r.Bands = bd.Bands()
+	return r
+}
+
+// Update processes one spectrum like IngestSpectrum but does not allocate:
+// the returned BandResult carries the summary fields only and Bands is nil.
+// Call Bands when the per-band states are needed (for example when an event
+// leaves the worker goroutine).
+func (bd *BandDetector) Update(freqs, power []float64) BandResult {
 	// Compute band-limited RMS for each band.
 	for i := range bd.states {
 		bd.states[i].BandRMS = bandRMS(freqs, power, bd.states[i].Band)
@@ -244,13 +254,18 @@ func bandRMS(freqs, power []float64, band FreqBand) float64 {
 	return math.Sqrt(v)
 }
 
-func (bd *BandDetector) buildResult() BandResult {
-	r := BandResult{
-		Bands:           make([]BandState, len(bd.states)),
-		OverallSeverity: SeverityNormal,
-	}
-	copy(r.Bands, bd.states)
+// Bands returns a copy of the current per-band states. The copy is owned by
+// the caller, so it is safe to hand to another goroutine.
+func (bd *BandDetector) Bands() []BandState {
+	out := make([]BandState, len(bd.states))
+	copy(out, bd.states)
+	return out
+}
 
+// buildResult summarises the current states. It does not allocate and leaves
+// Bands nil.
+func (bd *BandDetector) buildResult() BandResult {
+	r := BandResult{OverallSeverity: SeverityNormal}
 	for _, st := range bd.states {
 		if st.IsAnomaly {
 			r.AnyAnomaly = true

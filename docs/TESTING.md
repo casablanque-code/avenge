@@ -6,7 +6,7 @@ Every pull request and every push to `main` runs the same checks. The single req
 
 | Job        | What it checks |
 | ---------- | -------------- |
-| `edge`     | `gofmt`, `go vet`, build, `go test -race` with a coverage floor on `edge/internal/...`, and cross-build plus `go vet` for `linux/arm64` (Raspberry Pi), `darwin/arm64` and `windows/amd64` (development machines; serial input is Linux-only and stubbed elsewhere). Runs on the Go version in `go.mod` and on the latest stable Go. |
+| `edge`     | `gofmt`, `go vet`, build, `go test -race` with a coverage floor on `edge/internal/...`, allocation guards (the per-window path must not allocate), and cross-build plus `go vet` for `linux/arm64` (Raspberry Pi), `darwin/arm64` and `windows/amd64` (development machines; serial input is Linux-only and stubbed elsewhere). Runs on the Go version in `go.mod` and on the latest stable Go. |
 | `vuln`     | `govulncheck` against the Go vulnerability database. |
 | `infra`    | Compose files resolve (`docker compose config`), `yamllint`, `shellcheck`, `hadolint`, `actionlint`, dashboard JSON validity, that every Mermaid diagram in the docs parses, and `tests/lint/repo-checks.sh` (every required `.env` variable is in `.env.example`, no tracked `.env`, `passwd` or key files, every path and link in README/docs exists). |
 | `image`    | Builds the edge image, verifies it runs as non-root, and replays a seeded signal through it (`--no-mqtt`) to check that no sample is dropped. |
@@ -30,6 +30,7 @@ Edge unit tests and benchmarks (Go only):
 ```
 cd edge
 go vet ./... && go test -race -count=1 ./...
+go test -count=1 -run 'AllocFree|AllocsBounded' ./internal/...   # allocation guards, without -race
 go test ./internal/... -run '^$' -bench . -benchmem
 ```
 

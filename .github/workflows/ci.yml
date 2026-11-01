@@ -84,6 +84,9 @@ jobs:
           set -o pipefail
           go test -race -count=1 -coverprofile=coverage.out ./internal/... | tee test.log
 
+      - name: Allocation guards (without the race detector)
+        run: go test -count=1 -run 'AllocFree|AllocsBounded' ./internal/...
+
       - name: Coverage gate
         run: |
           total=$(go tool cover -func=coverage.out | awk '/^total:/ {gsub("%", "", $3); print $3}')

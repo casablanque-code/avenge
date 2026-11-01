@@ -18,3 +18,8 @@ __pycache__/
 
 # Node (docs diagram checker)
 node_modules/
+
+# Go test artifacts
+*.test
+coverage.out
+test.log

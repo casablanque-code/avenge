@@ -137,9 +137,23 @@ type SensorWorker struct {
 	ringBuf    []float64
 	ringFilled int
 
+	// Reusable scratch buffers: the per-window path must not allocate.
+	origBuf []float64      // DC-included copy of the window for the RMS detector
+	sdtOut  []filter.Point // SDT result, only its length is used
+
 	totalWindows    int
 	totalRaw        int
 	totalCompressed int
+}
+
+// maxPreallocWindows bounds how many windows of SDT history are allocated up
+// front. A longer flush interval still works: the buffers grow once and are
+// then reused, so steady state does not allocate.
+const maxPreallocWindows = 64
+
+// bufferWindows returns how many windows of samples to preallocate for.
+func bufferWindows(cfg SensorConfig) int {
+	return min(max(cfg.SDTFlushEvery, 1), maxPreallocWindows)
 }
 
 // newSensorWorker creates an initialised SensorWorker for the given config.
@@ -168,8 +182,10 @@ func newSensorWorker(cfg SensorConfig) *SensorWorker {
 			bandCfg,
 		),
 		scoreThr: scoring.DefaultThresholds(),
-		sdt:      make([]filter.Point, 0, cfg.FFTWindow*20),
+		sdt:      make([]filter.Point, 0, cfg.FFTWindow*bufferWindows(cfg)),
+		sdtOut:   make([]filter.Point, 0, cfg.FFTWindow*bufferWindows(cfg)),
 		ringBuf:  make([]float64, cfg.FFTWindow),
+		origBuf:  make([]float64, cfg.FFTWindow),
 	}
 }
 
@@ -194,10 +210,10 @@ func (w *SensorWorker) ingestSample(s Sample) *WorkerEvent {
 	// FFT (zero-alloc via Processor, in-place DC removal).
 	removeDCInPlace(w.ringBuf)
 	freqs, power := w.fftProc.PowerSpectrum(w.ringBuf)
-	bandResult := w.bandDet.IngestSpectrum(freqs, power)
+	bandResult := w.bandDet.Update(freqs, power) // allocation-free summary
 
 	// Anomaly detection on original values (DC-included).
-	origVals := make([]float64, w.cfg.FFTWindow)
+	origVals := w.origBuf
 	tail := w.sdt[len(w.sdt)-w.cfg.FFTWindow:]
 	for i, p := range tail {
 		origVals[i] = p.Value
@@ -220,12 +236,15 @@ func (w *SensorWorker) ingestSample(s Sample) *WorkerEvent {
 	// periodic data in ClickHouse so Grafana has something to draw.
 	var flushEvent *WorkerEvent
 	if w.totalWindows%w.cfg.SDTFlushEvery == 0 {
-		compressed := filter.SDT(w.sdt, w.cfg.SDTEpsilon)
+		// Only the length is needed, so reuse one buffer instead of allocating.
+		w.sdtOut = filter.SDTInto(w.sdtOut, w.sdt, w.cfg.SDTEpsilon)
+		compressed := w.sdtOut
 		ratio := float32(filter.CompressionRatio(len(w.sdt), len(compressed)))
 		w.totalRaw += len(w.sdt)
 		w.totalCompressed += len(compressed)
 		w.sdt = w.sdt[:0]
 
+		bandResult.Bands = w.bandDet.Bands() // owned copy: the event leaves this goroutine
 		flushEvent = &WorkerEvent{
 			SensorID:         w.cfg.ID,
 			Event:            event, // may be nil — that's fine
@@ -247,6 +266,7 @@ func (w *SensorWorker) ingestSample(s Sample) *WorkerEvent {
 			// Flush event already carries this transition — no duplicate needed.
 			return flushEvent
 		}
+		bandResult.Bands = w.bandDet.Bands() // owned copy: the event leaves this goroutine
 		return &WorkerEvent{
 			SensorID:       w.cfg.ID,
 			Event:          event,

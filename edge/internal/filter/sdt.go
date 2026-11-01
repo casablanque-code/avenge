@@ -27,11 +27,24 @@ func SDT(points []Point, epsilon float64) []Point {
 	if len(points) == 0 {
 		return nil
 	}
+	return SDTInto(nil, points, epsilon)
+}
+
+// SDTInto is SDT that appends its result to dst[:0] and returns it, so a
+// caller that only needs the result transiently (for example its length) can
+// reuse one buffer and avoid allocating on every call. dst may be nil; when
+// its capacity is at least the number of points the call does not allocate.
+// The result aliases dst, so it is only valid until dst is reused.
+func SDTInto(dst []Point, points []Point, epsilon float64) []Point {
+	result := dst[:0]
+	if len(points) == 0 {
+		return result
+	}
 	if len(points) == 1 {
-		return []Point{points[0]}
+		return append(result, points[0])
 	}
 
-	result := []Point{points[0]}
+	result = append(result, points[0])
 	anchor := points[0]
 
 	// Slope limits for the two doors.
