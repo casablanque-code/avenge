@@ -198,6 +198,8 @@ check "edge engine ran and exited cleanly" replay
 wait_for 60 rows_at_least "SELECT count() FROM iot.telemetry WHERE sensor_id = '$SENSOR'" 3 || true
 check "telemetry rows arrived (>= 3)" \
   rows_at_least "SELECT count() FROM iot.telemetry WHERE sensor_id = '$SENSOR'" 3
+check "combined-score fields (final_score, dominant_signal) reach ClickHouse" \
+  rows_at_least "SELECT count() FROM iot.telemetry WHERE sensor_id = '$SENSOR' AND dominant_signal != ''" 3
 check "per-minute aggregate populated" \
   rows_at_least "SELECT count() FROM iot.telemetry_1m WHERE sensor_id = '$SENSOR'" 1
 check "critical anomaly onset recorded" \

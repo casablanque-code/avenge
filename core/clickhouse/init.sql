@@ -1,17 +1,22 @@
 -- ClickHouse schema for AVENGE — Smart Manufacturing PoC
 --
--- Apply with:  core/clickhouse/init.sh
--- (not auto-applied via docker-entrypoint-initdb.d: multi-statement init
--- scripts there trigger a double-process startup bug — EADDRINUSE on
--- 8123/9000/9009 — in the 24.3-alpine image). Safe to re-run.
+-- Applied automatically by the clickhouse-init service on every
+-- `docker compose up -d`; safe to re-run. (Not mounted into
+-- docker-entrypoint-initdb.d: multi-statement init scripts there trigger a
+-- double-process startup bug — EADDRINUSE on 8123/9000/9009 — in the
+-- 24.3-alpine image.)
 
 -- ── Landing table ──────────────────────────────────────────────────────
+-- Telegraf inserts whole JSON batches here; materialized views parse them into
+-- the typed tables below. The raw copy is only a buffer, so it expires fast.
 CREATE TABLE IF NOT EXISTS iot.telemetry_raw
 (
-    raw String
+    raw         String,
+    received_at DateTime MATERIALIZED now()
 )
 ENGINE = MergeTree()
-ORDER BY tuple();
+ORDER BY tuple()
+TTL received_at + INTERVAL 7 DAY;
 
 -- ── Telemetry table ────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS iot.telemetry
@@ -123,3 +128,8 @@ GROUP BY ts_bucket, sensor_id;
 ALTER TABLE iot.mv_telemetry_parse MODIFY DEFINER = CURRENT_USER SQL SECURITY DEFINER;
 ALTER TABLE iot.mv_anomaly_parse   MODIFY DEFINER = CURRENT_USER SQL SECURITY DEFINER;
 ALTER TABLE iot.mv_telemetry_1m    MODIFY DEFINER = CURRENT_USER SQL SECURITY DEFINER;
+
+-- ── Upgrade path for databases created by older versions ───────────────
+-- (no-ops on a fresh database)
+ALTER TABLE iot.telemetry_raw ADD COLUMN IF NOT EXISTS received_at DateTime MATERIALIZED now();
+ALTER TABLE iot.telemetry_raw MODIFY TTL received_at + INTERVAL 7 DAY;

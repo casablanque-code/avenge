@@ -19,7 +19,7 @@ Every pull request and every push to `main` runs the same checks. The single req
 - **Exposure:** ClickHouse, Mosquitto and Caddy are published on localhost only; Grafana and the MQTT WebSocket port are not published.
 - **MQTT:** anonymous and wrong-password connections are refused; `edge` can publish only to its topics.
 - **ClickHouse:** `telegraf` cannot read; `grafana` can read but cannot insert or drop.
-- **Data path:** a seeded simulator signal (`--seed 42`, fault after 10 s) goes through the edge engine, MQTT and Telegraf into ClickHouse: telemetry rows, the per-minute aggregate and a critical anomaly onset all arrive.
+- **Data path:** a seeded simulator signal (`--seed 42`, fault after 10 s) goes through the edge engine, MQTT and Telegraf into ClickHouse: telemetry rows (including the combined-score fields `final_score` and `dominant_signal`), the per-minute aggregate and a critical anomaly onset all arrive.
 - **Grafana:** reachable through Caddy, ClickHouse datasource healthy, dashboard provisioned.
 - **Rotation:** changing `MQTT_EDGE_PASSWORD` in `.env` and running `up -d` rejects the old password and accepts the new one.
 
