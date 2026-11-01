@@ -27,11 +27,12 @@ for dir in core edge; do
   done < <(grep -oE '\$\{[A-Z0-9_]+:\?' "$compose" | tr -d '${:?' | sort -u)
 done
 
-echo "== no real .env files are tracked"
-if git ls-files | grep -qE '(^|/)\.env$'; then
-  fail "a .env file is tracked by git"
+echo "== no secret-bearing files are tracked"
+# .env files, the generated MQTT password file, and key material.
+if tracked=$(git ls-files | grep -E '(^|/)(\.env|passwd)$|\.(pem|key|p12)$' | grep -v '^core/grafana/plugins/'); then
+  while read -r f; do fail "tracked secret-bearing file: $f"; done <<<"$tracked"
 else
-  ok "no tracked .env"
+  ok "no tracked .env, passwd or key files"
 fi
 
 echo "== paths and links mentioned in the docs exist"

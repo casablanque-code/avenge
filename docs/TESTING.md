@@ -6,9 +6,9 @@ Every pull request and every push to `main` runs the same checks. The single req
 
 | Job        | What it checks |
 | ---------- | -------------- |
-| `edge`     | `gofmt`, `go vet`, build, `go test -race` with a coverage floor on `edge/internal/...`, and a `linux/arm64` cross-build (Raspberry Pi). Runs on the Go version in `go.mod` and on the latest stable Go. |
+| `edge`     | `gofmt`, `go vet`, build, `go test -race` with a coverage floor on `edge/internal/...`, and cross-build plus `go vet` for `linux/arm64` (Raspberry Pi), `darwin/arm64` and `windows/amd64` (development machines; serial input is Linux-only and stubbed elsewhere). Runs on the Go version in `go.mod` and on the latest stable Go. |
 | `vuln`     | `govulncheck` against the Go vulnerability database. |
-| `infra`    | Compose files resolve (`docker compose config`), `yamllint`, `shellcheck`, `hadolint`, `actionlint`, dashboard JSON validity, and `tests/lint/repo-checks.sh` (every required `.env` variable is in `.env.example`, no tracked `.env`, every path and link in README/docs exists). |
+| `infra`    | Compose files resolve (`docker compose config`), `yamllint`, `shellcheck`, `hadolint`, `actionlint`, dashboard JSON validity, and `tests/lint/repo-checks.sh` (every required `.env` variable is in `.env.example`, no tracked `.env`, `passwd` or key files, every path and link in README/docs exists). |
 | `image`    | Builds the edge image, verifies it runs as non-root, and replays a seeded signal through it (`--no-mqtt`) to check that no sample is dropped. |
 | `e2e`      | Starts the real core stack with `docker compose up -d` and throwaway passwords, then checks the items listed below. |
 | `secrets`  | `gitleaks` over the full git history. |
@@ -55,5 +55,5 @@ CI fails if total statement coverage of `edge/internal/...` drops below `COVERAG
 ## Releases and dependencies
 
 - Tagging `vX.Y.Z` runs the full CI on that commit, verifies the commit is on `main`, then builds and pushes a multi-architecture image (`linux/amd64`, `linux/arm64`) with provenance and SBOM attestations. `latest` moves only for stable tags; a tag with a suffix (`v1.0.0-rc1`) is published as a pre-release under its own tag.
-- All GitHub Actions are pinned by commit SHA. Dependabot proposes weekly updates for the actions and for the base images of `edge/Dockerfile`.
+- All GitHub Actions are pinned by commit SHA. Dependabot proposes weekly updates for the actions, the base images of `edge/Dockerfile` and the images in `core/compose.yaml`; the `e2e` job is what makes those image bumps safe to review.
 - Recommended repository setting: protect `main` and require the `ci-ok` check.

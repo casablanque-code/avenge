@@ -14,3 +14,10 @@ updates:
     directory: /edge
     schedule:
       interval: weekly
+
+  # Images of the core stack (ClickHouse, Mosquitto, Grafana, Telegraf, Caddy,
+  # Alpine). The e2e job is the safety net that makes these bumps reviewable.
+  - package-ecosystem: docker-compose
+    directory: /core
+    schedule:
+      interval: weekly

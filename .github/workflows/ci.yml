@@ -27,13 +27,18 @@ env:
 
 jobs:
   edge:
-    name: edge (go ${{ matrix.go }})
+    name: edge (go ${{ matrix.name }})
     runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
-        go: ["1.27", "stable"]
+        include:
+          # The toolchain declared in go.mod, and whatever is newest.
+          - name: go.mod
+            go-version-file: edge/go.mod
+          - name: stable
+            go-version: stable
     defaults:
       run:
         working-directory: edge
@@ -44,7 +49,8 @@ jobs:
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: ${{ matrix.go }}
+          go-version: ${{ matrix.go-version }}
+          go-version-file: ${{ matrix.go-version-file }}
           # No go.sum: the project has zero external dependencies.
           cache: false
 
@@ -63,8 +69,13 @@ jobs:
       - name: go build
         run: go build ./...
 
-      - name: Cross-build for Raspberry Pi (linux/arm64)
-        run: GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o /dev/null ./cmd/edge-filter
+      - name: Cross-build and vet (Pi, macOS and Windows for development)
+        run: |
+          for target in linux/arm64 darwin/arm64 windows/amd64; do
+            echo "== $target"
+            GOOS="${target%/*}" GOARCH="${target#*/}" CGO_ENABLED=0 go build ./...
+            GOOS="${target%/*}" GOARCH="${target#*/}" go vet ./...
+          done
 
       - name: Tests (race detector, coverage)
         run: go test -race -count=1 -coverprofile=coverage.out ./internal/...
@@ -73,7 +84,7 @@ jobs:
         run: |
           total=$(go tool cover -func=coverage.out | awk '/^total:/ {gsub("%", "", $3); print $3}')
           echo "total coverage: ${total}% (minimum ${COVERAGE_MIN}%)"
-          echo "go ${{ matrix.go }}: coverage ${total}% (minimum ${COVERAGE_MIN}%)" >> "$GITHUB_STEP_SUMMARY"
+          echo "go ${{ matrix.name }}: coverage ${total}% (minimum ${COVERAGE_MIN}%)" >> "$GITHUB_STEP_SUMMARY"
           awk -v t="$total" -v m="$COVERAGE_MIN" 'BEGIN { exit !(t + 0 >= m + 0) }' \
             || { echo "::error::coverage ${total}% is below the ${COVERAGE_MIN}% floor"; exit 1; }
 

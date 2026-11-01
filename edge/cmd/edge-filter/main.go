@@ -33,6 +33,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"net"
 	"os"
 	"os/signal"
 	"strconv"
@@ -294,7 +295,8 @@ func defaultBroker() string {
 	if port == "" {
 		port = "1883"
 	}
-	return host + ":" + port
+	// JoinHostPort brackets IPv6 literals; accept both "::1" and "[::1]".
+	return net.JoinHostPort(strings.Trim(host, "[]"), port)
 }
 
 func printWorkerEvent(n int, ev sensor.WorkerEvent) {
