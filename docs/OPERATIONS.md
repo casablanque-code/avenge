@@ -87,3 +87,14 @@ curl -sI http://grafana.localhost | head -1              # HTTP/1.1 302 Found
 ```
 
 `preflight` and `clickhouse-init` show as `Exited (0)`; that is expected.
+
+## Data retention
+
+| Table                  | Contents                                   | Kept |
+| ---------------------- | ------------------------------------------ | ---- |
+| `iot.telemetry_raw`    | Raw JSON batches from Telegraf (a buffer)  | 7 days |
+| `iot.telemetry`        | Parsed telemetry points                    | 30 days |
+| `iot.anomaly_events`   | Anomaly state transitions                  | 90 days |
+| `iot.telemetry_1m`     | Per-minute aggregates (one row per sensor per minute) | Indefinitely |
+
+Retention is set in `core/clickhouse/init.sql` and applied by `clickhouse-init` on every `up -d`. Raw rows written before the 7-day TTL existed are not expired automatically; to reclaim that space once, run `docker exec sm_clickhouse clickhouse-client --user default --password "$CLICKHOUSE_PASSWORD" --query "TRUNCATE TABLE iot.telemetry_raw"` (the parsed tables are unaffected).
