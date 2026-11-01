@@ -1,6 +1,10 @@
 # Env files — never commit real secrets
 .env
 
+# Hashed MQTT passwords. The broker builds this file inside its container
+# from .env; a local copy must never be committed.
+core/mosquitto/config/passwd
+
 # Edge binary (built locally)
 edge/edge-filter
 

@@ -11,8 +11,9 @@
 // The reader reconstructs Sample.T from a monotonic counter driven by
 // the configured sample rate — the microcontroller does not send timestamps.
 //
-// Build constraint: linux only (termios syscall). The rest of the codebase
-// builds on all platforms via the stdin-based Reader.
+// Build constraint: linux only (termios syscall). Other platforms get the
+// stub in serial_other.go, so the module still builds there and runs with
+// the stdin-based Reader.
 package sensor
 
 import (
