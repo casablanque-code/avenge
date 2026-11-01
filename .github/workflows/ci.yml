@@ -22,8 +22,10 @@ concurrency:
 
 env:
   # Floor for total statement coverage of edge/internal/... (percent).
-  # Kept slightly below the measured value; raise it when tests improve.
-  COVERAGE_MIN: "79.0"
+  # Measured on the CI toolchain (Go 1.27): 78.2. The same code measures 80.1
+  # on Go 1.22, so compare numbers from the same toolchain only. Kept about a
+  # point below the measured value; raise it when tests improve.
+  COVERAGE_MIN: "77.0"
 
 jobs:
   edge:
@@ -78,13 +80,21 @@ jobs:
           done
 
       - name: Tests (race detector, coverage)
-        run: go test -race -count=1 -coverprofile=coverage.out ./internal/...
+        run: |
+          set -o pipefail
+          go test -race -count=1 -coverprofile=coverage.out ./internal/... | tee test.log
 
       - name: Coverage gate
         run: |
           total=$(go tool cover -func=coverage.out | awk '/^total:/ {gsub("%", "", $3); print $3}')
+          {
+            echo "### Coverage (go ${{ matrix.name }}): ${total}% (floor ${COVERAGE_MIN}%)"
+            echo
+            echo '| package | coverage |'
+            echo '| --- | --- |'
+            sed -n 's#^ok .*/internal/\([a-z]*\).*coverage: \([0-9.]*%\).*#| \1 | \2 |#p' test.log
+          } >> "$GITHUB_STEP_SUMMARY"
           echo "total coverage: ${total}% (minimum ${COVERAGE_MIN}%)"
-          echo "go ${{ matrix.name }}: coverage ${total}% (minimum ${COVERAGE_MIN}%)" >> "$GITHUB_STEP_SUMMARY"
           awk -v t="$total" -v m="$COVERAGE_MIN" 'BEGIN { exit !(t + 0 >= m + 0) }' \
             || { echo "::error::coverage ${total}% is below the ${COVERAGE_MIN}% floor"; exit 1; }
 
