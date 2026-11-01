@@ -1,0 +1,13 @@
+{
+  "name": "avenge-mermaid-check",
+  "private": true,
+  "description": "Parses every mermaid block in the Markdown docs (used by CI).",
+  "type": "module",
+  "scripts": {
+    "check": "node check.mjs ../../../README.md ../../../docs/*.md"
+  },
+  "dependencies": {
+    "jsdom": "26.1.0",
+    "mermaid": "11.12.0"
+  }
+}

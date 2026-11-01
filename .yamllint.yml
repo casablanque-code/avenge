@@ -3,6 +3,7 @@ extends: default
 
 ignore: |
   core/grafana/plugins/
+  node_modules/
 
 rules:
   line-length: disable

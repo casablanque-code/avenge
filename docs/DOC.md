@@ -52,6 +52,8 @@ Instead of transmitting raw signals, the system extracts features, detects anoma
 Sensor -> Edge Engine -> MQTT -> Telegraf -> ClickHouse -> Grafana
 ```
 
+Diagrams of the containers, the edge engine components, deployment, the data model and the main sequences: [ARCHITECTURE.md](ARCHITECTURE.md).
+
 ### Components
 
 #### Sensors
