@@ -58,6 +58,24 @@ for doc in "${docs[@]}"; do
 done
 [ "$failures" -eq 0 ] && ok "all documented paths exist"
 
+echo "== CHANGELOG.md structure"
+changelog=CHANGELOG.md
+if [ ! -f "$changelog" ]; then
+  fail "CHANGELOG.md is missing"
+else
+  grep -q '^## \[Unreleased\]' "$changelog" || fail "CHANGELOG.md has no [Unreleased] section"
+  prev=""
+  while read -r ver date; do
+    [[ "$date" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || fail "CHANGELOG.md: version $ver has no ISO date"
+    grep -q "^\[$ver\]: https://" "$changelog" || fail "CHANGELOG.md: no link reference for [$ver]"
+    if [ -n "$prev" ] && [ "$(printf '%s\n%s\n' "$ver" "$prev" | sort -V | head -n1)" != "$ver" ]; then
+      fail "CHANGELOG.md: $ver is listed after $prev (newest first, please)"
+    fi
+    prev="$ver"
+  done < <(sed -nE 's/^## \[([0-9][^]]*)\] - ([^ ]+).*/\1 \2/p' "$changelog")
+  [ "$failures" -eq 0 ] && ok "CHANGELOG.md structure is valid"
+fi
+
 echo
 if [ "$failures" -ne 0 ]; then
   echo "repo checks FAILED: $failures problem(s)"

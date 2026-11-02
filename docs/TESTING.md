@@ -61,6 +61,8 @@ CI fails if total statement coverage of `edge/internal/...` drops below `COVERAG
 
 ## Releases and dependencies
 
-- Tagging `vX.Y.Z` runs the full CI on that commit, verifies the commit is on `main`, then builds and pushes a multi-architecture image (`linux/amd64`, `linux/arm64`) with provenance and SBOM attestations. `latest` moves only for stable tags; a tag with a suffix (`v1.0.0-rc1`) is published as a pre-release under its own tag.
+To release: rename `## [Unreleased]` in `CHANGELOG.md` to `## [X.Y.Z] - YYYY-MM-DD`, add a fresh empty `[Unreleased]` section above it and update the link references at the bottom, merge, then tag. The GitHub release notes are that section plus the image pull command. `tests/lint/repo-checks.sh` validates the file's structure on every pull request.
+
+- Tagging `vX.Y.Z` first requires a `## [X.Y.Z]` section in [CHANGELOG.md](../CHANGELOG.md), runs the full CI on that commit, verifies the commit is on `main`, then builds and pushes a multi-architecture image (`linux/amd64`, `linux/arm64`) with provenance and SBOM attestations. `latest` moves only for stable tags; a tag with a suffix (`v1.0.0-rc1`) is published as a pre-release under its own tag.
 - All GitHub Actions are pinned by commit SHA. Dependabot proposes weekly updates for the actions, the base images of `edge/Dockerfile` and the images in `core/compose.yaml`; the `e2e` job is what makes those image bumps safe to review.
 - Recommended repository setting: protect `main` and require the `ci-ok` check.

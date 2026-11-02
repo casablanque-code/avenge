@@ -26,6 +26,9 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      - name: CHANGELOG.md has a section for this tag
+        run: tests/lint/changelog-section.sh "$GITHUB_REF_NAME" > /dev/null
+
       - name: Require the tagged commit to be an ancestor of main
         run: |
           git fetch origin main:refs/remotes/origin/main
@@ -100,14 +103,23 @@ jobs:
           fetch-depth: 0   # full history needed for changelog generation
           persist-credentials: false
 
+      - name: Build release notes from CHANGELOG.md
+        env:
+          REPO_OWNER: ${{ github.repository_owner }}
+        run: |
+          image="ghcr.io/${REPO_OWNER,,}/avenge-edge:${GITHUB_REF_NAME}"
+          {
+            tests/lint/changelog-section.sh "$GITHUB_REF_NAME"
+            echo
+            echo "### Image"
+            echo
+            echo '```bash'
+            echo "docker pull ${image}"
+            echo '```'
+          } > "$RUNNER_TEMP/release-notes.md"
+
       - name: Create release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
-          generate_release_notes: true
+          body_path: ${{ runner.temp }}/release-notes.md
           prerelease: ${{ contains(github.ref_name, '-') }}
-          body: |
-            Image: `ghcr.io/${{ github.repository_owner }}/avenge-edge:${{ github.ref_name }}`
-
-            ```bash
-            docker pull ghcr.io/${{ github.repository_owner }}/avenge-edge:${{ github.ref_name }}
-            ```

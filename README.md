@@ -71,6 +71,7 @@ avenge/
 │   ├── telegraf/
 │   ├── clickhouse/              # init.sql (applied automatically), users.d/ (service accounts)
 │   └── grafana/provisioning/    # Auto-provisioned datasource + dashboard
+├── CHANGELOG.md                 # Release history (Keep a Changelog)
 ├── tests/
 │   ├── e2e/run.sh               # Full-stack end-to-end test (Docker)
 │   └── lint/                    # repo-checks.sh (.env.example, docs paths), mermaid/ (diagram parse check)
@@ -164,13 +165,15 @@ The image is published to `ghcr.io/casablanque-code/avenge-edge` by the Release 
 
 | Component | Technology |
 |---|---|
-| Edge engine | Go 1.27, stdlib + raw syscalls for serial I/O |
+| Edge engine | Go (version in `edge/go.mod`), stdlib + raw syscalls for serial I/O |
 | Signal generator | Python 3.10+ |
-| MQTT broker | Eclipse Mosquitto 2.0 |
-| Ingestion agent | InfluxData Telegraf 1.30 |
-| Time-series database | ClickHouse 24.3 |
-| Dashboards | Grafana 10.4 |
+| MQTT broker | Eclipse Mosquitto |
+| Ingestion agent | InfluxData Telegraf |
+| Time-series database | ClickHouse |
+| Dashboards | Grafana |
 | Containerization | Docker Compose, distroless runtime image |
+
+Component versions are pinned in `core/compose.yaml` and `edge/Dockerfile`; what changed between releases is in [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
