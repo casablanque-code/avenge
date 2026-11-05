@@ -59,9 +59,14 @@ type Event struct {
 	// Timestamp is the wall-clock time of the window that triggered the event.
 	Timestamp time.Time
 	// T is the sensor-domain time in seconds (from the sample stream).
-	T              float64
-	Anomaly        bool
-	Severity       Severity
+	T        float64
+	Anomaly  bool
+	Severity Severity
+	// Signal names what drove the anomaly: "rms" or "band". For a clear it
+	// is what drove the anomaly that is now over. Set by the SensorWorker.
+	Signal string
+	// Band is the frequency band behind a "band" anomaly (empty for "rms").
+	Band           string
 	RMS            float64
 	ZScore         float64
 	BaselineMean   float64
@@ -169,6 +174,10 @@ func (d *Detector) IngestWindow(samples []float64, windowStartT float64) *Event 
 		BaselineStdDev: d.baseStdDev,
 	}
 }
+
+// Baseline returns the current baseline mean and standard deviation of the
+// window RMS. Both are zero until BaselineReady.
+func (d *Detector) Baseline() (mean, stdDev float64) { return d.baseMean, d.baseStdDev }
 
 // State returns the current anomaly state.
 func (d *Detector) State() bool { return d.lastAnomalyState }

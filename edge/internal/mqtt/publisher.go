@@ -46,6 +46,11 @@ type AnomalyMessage struct {
 	ZScore         float32 `json:"z_score"`
 	BaselineMean   float32 `json:"baseline_mean"`
 	BaselineStddev float32 `json:"baseline_stddev"`
+	// DominantSignal is what drove the anomaly: "rms" or "band". On a clear
+	// it is what drove the anomaly that ended.
+	DominantSignal string `json:"dominant_signal"`
+	// Band is the frequency band behind a "band" anomaly, empty otherwise.
+	Band string `json:"band"`
 }
 
 // Publishable is the minimal interface required by Publisher.
@@ -105,6 +110,7 @@ func (p *Publisher) PublishAnomaly(
 	eventType string,
 	severity string,
 	rms, zScore, baselineMean, baselineStddev float32,
+	dominantSignal, band string,
 ) error {
 	msg := AnomalyMessage{
 		TsMs:           t.UnixMilli(),
@@ -115,6 +121,8 @@ func (p *Publisher) PublishAnomaly(
 		ZScore:         zScore,
 		BaselineMean:   baselineMean,
 		BaselineStddev: baselineStddev,
+		DominantSignal: dominantSignal,
+		Band:           band,
 	}
 	payload, err := json.Marshal(msg)
 	if err != nil {

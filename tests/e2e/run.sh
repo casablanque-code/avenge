@@ -204,6 +204,8 @@ check "per-minute aggregate populated" \
   rows_at_least "SELECT count() FROM iot.telemetry_1m WHERE sensor_id = '$SENSOR'" 1
 check "critical anomaly onset recorded" \
   rows_at_least "SELECT count() FROM iot.anomaly_events WHERE sensor_id = '$SENSOR' AND event_type = 'onset' AND severity = 'critical'" 1
+check "anomaly event names its source (dominant_signal)" \
+  rows_at_least "SELECT count() FROM iot.anomaly_events WHERE sensor_id = '$SENSOR' AND event_type = 'onset' AND dominant_signal != ''" 1
 
 # ── 6. Grafana ──────────────────────────────────────────────────────────
 step "Grafana"

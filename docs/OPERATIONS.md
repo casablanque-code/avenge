@@ -114,6 +114,12 @@ The first 2 seconds are ignored (pipes deliver a start-up burst), a deviation ab
 
 Each printed line is one event: a periodic telemetry flush or an anomaly state change, not one window. `win N` is the number of the window that produced the event; `N * window length` is the time since start in sample time. The summary at the end counts all processed windows and the windows whose combined severity was above normal (`Above warning`).
 
+### Anomaly events
+
+The engine is in anomaly while the RMS detector or any frequency-band detector is in anomaly. Each change of that state is one event, shown as `ANOMALY [severity] via rms|band <name>` and `CLEAR (was ...)`, and sent to `iot.anomaly_events` as `onset` or `clear` with the columns `dominant_signal` and `band`. A tone that barely changes the overall RMS but stands out in its band is reported with the band's name.
+
+Upgrading an existing installation: `docker compose -f core/compose.yaml up -d` is enough; `clickhouse-init` adds the two columns and recreates the parsing view. Older rows keep empty values in the new columns. Update the edge at the same time: an old edge sends no `band`.
+
 Timestamps sent over MQTT are the wall-clock time at which the window completed on the edge machine. When the core runs on another host, keep both clocks in sync (NTP) before comparing events.
 
 ## Signal profiles

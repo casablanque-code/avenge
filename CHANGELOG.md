@@ -23,6 +23,8 @@ Entries for 0.1.0 to 0.2.4 were reconstructed from the git history and the conte
 
 ### Changed
 
+- **Anomaly events follow the combined state.** `onset` and `clear` are now published when the RMS detector or any band detector enters or leaves anomaly, not when the RMS detector alone changes. A tonal anomaly that barely moves the RMS now produces an onset; before, it showed up only in the 10-second telemetry and its transitions were published as `clear`. Severity changes during an anomaly are no longer events. Telemetry `is_anomaly` is the same combined state (it used to mean "severity above normal", which flapped near the warning threshold).
+- Anomaly messages and `iot.anomaly_events` carry `dominant_signal` and `band`; the Grafana table shows them as `source`. Existing databases are migrated by `clickhouse-init` (see `docs/OPERATIONS.md`); run the edge and core of the same version.
 - Console `win N` is now the real window number of the event (it used to count printed events), and the end summary reports processed windows and windows above warning level; it used to count events as windows (9 "windows" for 60 s of sound). Output of a replayed signal therefore differs from the previous version in these two places only.
 - MQTT timestamps are taken when the window completes in the worker, not when the event is published.
 - **Breaking:** a serial interface (`SERIAL_INTERFACE`) now requires `SENSOR_SAMPLE_RATE` and exits with an error without it. `edge/.env.example` ships the line commented out and `edge/compose.yaml` no longer defaults it to 1600, so a copied example can no longer start with a guessed rate. Set `SENSOR_SAMPLE_RATE=1600` for the ADXL345 firmware.
@@ -35,6 +37,7 @@ Entries for 0.1.0 to 0.2.4 were reconstructed from the git history and the conte
 
 ### Fixed
 
+- `CLEAR` events without a preceding `ANOMALY` (severity downgrades of the RMS detector were published as `clear`).
 - README and `docs/OPERATIONS.md` did not mention that serial input needs `SENSOR_SAMPLE_RATE`; the old `edge/.env.example` pre-set 1600 Hz, which shifted all frequencies when it was used with the 1000 Hz simulator.
 - Documentation said telemetry carried SDT turning points; it carries only the compression ratio, the compressed points are not transmitted. The description of band scoring said "weighted", but the larger of the RMS and band z-scores decides; the claim that bands detect bearing defects, imbalance and misalignment now says they are symptoms, not diagnoses.
 

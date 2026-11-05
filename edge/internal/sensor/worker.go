@@ -117,9 +117,11 @@ type WorkerEvent struct {
 	// SDTRatio is the compression ratio from the most recent SDT flush.
 	// Only meaningful when IsTelemetryFlush is true.
 	SDTRatio float32
-	// IsAnomaly reflects the combined scoring decision (see FinalScore),
-	// not the RMS detector alone — a window can be IsAnomaly=true purely
-	// because the band detector saw a spike, even if RMS looks calm.
+	// IsAnomaly is the combined anomaly state (with hysteresis): the RMS
+	// detector or any band detector is in anomaly. A window can be
+	// IsAnomaly=true purely because a band detector saw a spike, even if
+	// RMS looks calm. It changes exactly when Event reports an onset or a
+	// clear.
 	IsAnomaly bool
 	// Severity is derived from FinalScore, combining the RMS detector's
 	// z-score and the band detector's max z-score (scoring.Combine).
@@ -162,6 +164,13 @@ type SensorWorker struct {
 	origBuf []float64      // DC-included copy of the window for the RMS detector
 	sdtOut  []filter.Point // SDT result, only its length is used
 
+	// Combined anomaly state: the RMS detector OR any band detector is in
+	// anomaly (each with its own hysteresis). onsetSignal/onsetBand remember
+	// what started the current anomaly so its clear event can say so.
+	active          bool
+	onsetSignal     string
+	onsetBand       string
+	inAnomaly       int // windows spent in the combined anomaly state
 	totalWindows    int
 	aboveWarning    int // windows whose combined severity was above normal
 	totalRaw        int
@@ -259,7 +268,7 @@ func (w *SensorWorker) ingestSample(s Sample) *WorkerEvent {
 		origVals[i] = p.Value
 	}
 	windowStartT := windowT - float64(w.cfg.FFTWindow-1)/float64(w.cfg.SampleRate)
-	event := w.det.IngestWindow(origVals, windowStartT)
+	w.det.IngestWindow(origVals, windowStartT) // the state is read below
 	windowRMS := float32(rmsOf(origVals))
 
 	// Combine the RMS detector's z-score with the band detector's max
@@ -274,6 +283,38 @@ func (w *SensorWorker) ingestSample(s Sample) *WorkerEvent {
 		w.aboveWarning++
 	}
 	windowTime := time.Now()
+
+	// One anomaly state for the whole worker: RMS detector OR any band
+	// detector. A tone that barely moves the RMS but stands out in its band
+	// is an anomaly too. Onset and clear are the changes of this state.
+	active := w.det.State() || bandResult.AnyAnomaly
+	if active {
+		w.inAnomaly++
+	}
+	var event *anomaly.Event
+	if active != w.active {
+		w.active = active
+		if active {
+			w.onsetSignal, w.onsetBand = score.DominantSignal, ""
+			if score.DominantSignal == "band" {
+				w.onsetBand = bandResult.MaxZBand
+			}
+		}
+		mean, std := w.det.Baseline()
+		event = &anomaly.Event{
+			SensorID:       w.cfg.ID,
+			Timestamp:      windowTime,
+			T:              windowStartT,
+			Anomaly:        active,
+			Severity:       score.Severity,
+			Signal:         w.onsetSignal,
+			Band:           w.onsetBand,
+			RMS:            float64(windowRMS),
+			ZScore:         score.FinalScore,
+			BaselineMean:   mean,
+			BaselineStdDev: std,
+		}
+	}
 
 	// SDT flush — emit a telemetry event every SDTFlushEvery windows.
 	// This is independent of anomaly state transitions: we always want
@@ -298,7 +339,7 @@ func (w *SensorWorker) ingestSample(s Sample) *WorkerEvent {
 			WindowTime:       windowTime,
 			Window:           w.totalWindows,
 			SDTRatio:         ratio,
-			IsAnomaly:        score.Severity != anomaly.SeverityNormal,
+			IsAnomaly:        w.active,
 			Severity:         string(score.Severity),
 			FinalScore:       score.FinalScore,
 			DominantSignal:   score.DominantSignal,
@@ -307,7 +348,6 @@ func (w *SensorWorker) ingestSample(s Sample) *WorkerEvent {
 
 	// Anomaly state transition — emit regardless of flush cycle.
 	if event != nil {
-		event.SensorID = w.cfg.ID
 		if flushEvent != nil {
 			// Flush event already carries this transition — no duplicate needed.
 			return flushEvent
@@ -320,7 +360,7 @@ func (w *SensorWorker) ingestSample(s Sample) *WorkerEvent {
 			Window:         w.totalWindows,
 			WindowRMS:      windowRMS,
 			BandResult:     bandResult,
-			IsAnomaly:      score.Severity != anomaly.SeverityNormal,
+			IsAnomaly:      w.active,
 			Severity:       string(score.Severity),
 			FinalScore:     score.FinalScore,
 			DominantSignal: score.DominantSignal,
@@ -336,12 +376,14 @@ type WorkerStats struct {
 	Windows int
 	// AboveWarning is how many of them had a combined severity above normal.
 	AboveWarning int
+	// InAnomaly is how many of them were spent in the combined anomaly state.
+	InAnomaly int
 }
 
 // Stats returns the worker's counters. Call it only after the worker has
 // stopped; Manager.Stats does that safely.
 func (w *SensorWorker) Stats() WorkerStats {
-	return WorkerStats{Windows: w.totalWindows, AboveWarning: w.aboveWarning}
+	return WorkerStats{Windows: w.totalWindows, AboveWarning: w.aboveWarning, InAnomaly: w.inAnomaly}
 }
 
 // CompressionRatio returns the current SDT compression ratio.

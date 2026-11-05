@@ -239,7 +239,7 @@ sequenceDiagram
     end
     Note over E: 512 samples make one window
     E->>E: remove DC, FFT, band z-scores, RMS z-score, combine
-    opt the RMS detector changes state
+    opt the anomaly state changes (RMS detector or any band)
         E->>R: sm/anomaly/id with event_type onset or clear
     end
     opt every 20th window
@@ -288,7 +288,7 @@ sequenceDiagram
 
 ## Notes and limits
 
-- **Anomaly events come from the RMS detector only.** A message on `sm/anomaly/...` is published when the RMS detector changes state, and its `event_type` is `onset` only while that detector reports an anomaly; every other transition, including a first warning, is labelled `clear`. The combined severity (RMS and frequency bands) travels in the telemetry messages, so a fault visible only in a frequency band shows up in telemetry but may produce no anomaly event.
+- **One anomaly state.** The engine is in anomaly while the RMS detector or any frequency-band detector is in anomaly, each with its own hysteresis. A message on `sm/anomaly/...` is published when that combined state changes: `onset` when it is entered, `clear` when it is left, nothing else. It carries `dominant_signal` (`rms` or `band`) and `band` (the band name, empty for `rms`); a `clear` repeats what the matching onset said. Severity changes during an anomaly are not events; they are visible in the telemetry (`severity`, `final_score`). `is_anomaly` in the telemetry is the same combined state.
 - **Outage buffer.** With the default cadence the queue of 512 messages holds roughly `512 × 20 × 512 / sample_rate` seconds of telemetry: about 87 minutes at 1 kHz and 55 minutes at 1.6 kHz. This is derived from the code, not measured.
 - **SDT is a measurement, not a payload.** The engine compresses the buffered samples to report the compression ratio (`sdt_ratio`); the compressed points are not transmitted. One telemetry message summarizes a whole flush interval.
 - **Allocations.** After initialization the per-window path (ring buffer, FFT, both detectors, scoring) does not allocate; tests enforce this. A window that emits an event allocates the event and a copy of the band states (a few small objects), because they are handed to another goroutine. This is a measured property of the code on amd64 with Go 1.22; the Raspberry Pi has not been measured.
