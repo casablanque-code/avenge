@@ -101,14 +101,24 @@ Settings live in `edge/.env`; an exported variable overrides the file and a flag
 
 ## Sample-rate check
 
-A serial device or a microphone pipe sends no clock, so the engine trusts `SENSOR_SAMPLE_RATE` for time and for every frequency. To catch a wrong value it measures how fast samples really arrive and prints one line after about 12 seconds:
+A serial device or a microphone pipe sends no clock, so the engine trusts `SENSOR_SAMPLE_RATE` for time and for every frequency. To catch a wrong value it measures how fast samples really arrive. After about 12 seconds it prints one line, or, when the rate is wrong, a box:
 
 ```
 rate check: samples arrive at 1002 Hz, SENSOR_SAMPLE_RATE is 1000 - ok
-warning: rate check: samples arrive at 8013 Hz but SENSOR_SAMPLE_RATE is 16000; ...
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ RATE MISMATCH                                                                │
+│ Samples arrive at 1002 Hz, but SENSOR_SAMPLE_RATE is 1600.                   │
+│ Time and every frequency in this run are wrong.                              │
+│ Fix the rate of the source or SENSOR_SAMPLE_RATE in edge/.env, then restart. │
+└──────────────────────────────────────────────────────────────────────────────┘
 ```
 
-The first 2 seconds are ignored (pipes deliver a start-up burst), a deviation above 5% is a warning, and a wrong rate is reported again every minute. Input much faster than real time (a file or a generator) is recognised as a replay and skipped. If the check shows a different rate than you expected, fix the source or the setting; do not ignore the warning, all frequencies and the detection delay depend on it.
+The first 2 seconds are ignored (pipes deliver a start-up burst), a deviation above 5% is a mismatch, and a mismatch is repeated every minute. Input much faster than real time (a file or a generator) is recognised as a replay and skipped. The summary at the end of the run repeats the outcome (`Rate check : ok (...)`, `MISMATCH (...)`, `replay`, or `not measured` for runs shorter than about 12 seconds) and shows `Real time` next to the sample count, so a wrong rate is visible there as well. Do not ignore a mismatch: all frequencies, band names and detection delays of that run depend on the rate.
+
+Which rate to expect: the simulator (`firmware-sim/signal_generator.py`) and the vibration profile default to 1000 Hz, the ADXL345 firmware runs at 1600 Hz, sound is captured at 16000 Hz. For the hardware set `SENSOR_SAMPLE_RATE=1600`; for the simulator at 1600 start it with `--rate 1600`.
+
+**Upgrading:** older versions of `edge/.env.example` had `SENSOR_SAMPLE_RATE=1600` switched on. An `edge/.env` copied from them keeps that line, and with the 1000 Hz simulator, or with sound, it now produces the mismatch box. Check the line in your own `edge/.env`: comment it out, or set the real rate of your source.
 
 ## Console output
 

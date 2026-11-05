@@ -299,6 +299,7 @@ func main() {
 
 	// Compares the real arrival rate of samples with SENSOR_SAMPLE_RATE.
 	rateMon := sensor.NewRateMonitor(sensorCfg.SampleRate)
+	startedAt := time.Now()
 
 	// ── Hot loop: read source → Manager ───────────────────────────────
 	for {
@@ -350,7 +351,11 @@ shutdown:
 	}
 
 	stats, _ := mgr.Stats(*sensorID)
-	printStats(totalSamples, totalEvents, stats, sensorCfg.SampleRate)
+	var lastRate *sensor.RateReport
+	if r, ok := rateMon.Latest(); ok {
+		lastRate = &r
+	}
+	fmt.Print(formatStats(totalSamples, totalEvents, stats, sensorCfg.SampleRate, lastRate, time.Since(startedAt)))
 
 	// The microphone command ended on its own (we were not asked to stop):
 	// say why, and fail.
@@ -443,30 +448,72 @@ func printWorkerEvent(ev sensor.WorkerEvent) {
 	fmt.Println()
 }
 
-func printStats(samples int64, events int, st sensor.WorkerStats, sampleRate int) {
+// formatStats renders the summary printed at the end of a run. rate is the
+// latest result of the sample-rate check (nil if the run was too short to
+// measure); wall is the real time the run took.
+func formatStats(samples int64, events int, st sensor.WorkerStats, sampleRate int, rate *sensor.RateReport, wall time.Duration) string {
 	sep := strings.Repeat("─", 54)
-	fmt.Println("\n" + sep)
-	fmt.Printf("  Total samples   : %d (%.1f s)\n", samples, float64(samples)/float64(sampleRate))
-	fmt.Printf("  Windows         : %d\n", st.Windows)
+	var b strings.Builder
+	fmt.Fprintf(&b, "\n%s\n", sep)
+	fmt.Fprintf(&b, "  Total samples   : %d (%.1f s at %d Hz)\n", samples, float64(samples)/float64(sampleRate), sampleRate)
+	if rate != nil && rate.Kind != sensor.RateReplay {
+		fmt.Fprintf(&b, "  Real time       : %.1f s\n", wall.Seconds())
+	}
+	fmt.Fprintf(&b, "  Windows         : %d\n", st.Windows)
 	if st.Windows > 0 {
-		fmt.Printf("  In anomaly      : %d / %d (%.1f%%)\n",
+		fmt.Fprintf(&b, "  In anomaly      : %d / %d (%.1f%%)\n",
 			st.InAnomaly, st.Windows, 100*float64(st.InAnomaly)/float64(st.Windows))
-		fmt.Printf("  Above warning   : %d / %d (%.1f%%)\n",
+		fmt.Fprintf(&b, "  Above warning   : %d / %d (%.1f%%)\n",
 			st.AboveWarning, st.Windows, 100*float64(st.AboveWarning)/float64(st.Windows))
 	}
-	fmt.Printf("  Events shown    : %d (periodic telemetry and state changes)\n", events)
-	fmt.Println(sep)
+	fmt.Fprintf(&b, "  Events shown    : %d (periodic telemetry and state changes)\n", events)
+	switch {
+	case rate == nil:
+		fmt.Fprintf(&b, "  Rate check      : not measured (needs about 12 s of live input)\n")
+	case rate.Kind == sensor.RateOK:
+		fmt.Fprintf(&b, "  Rate check      : ok (%.0f Hz measured, %.0f Hz configured)\n", rate.Measured, rate.Want)
+	case rate.Kind == sensor.RateReplay:
+		fmt.Fprintf(&b, "  Rate check      : replay, faster than real time\n")
+	default:
+		fmt.Fprintf(&b, "  Rate check      : MISMATCH (%.0f Hz measured, %.0f Hz configured): all times and frequencies above are wrong\n",
+			rate.Measured, rate.Want)
+	}
+	fmt.Fprintf(&b, "%s\n", sep)
+	return b.String()
 }
 
-// printRateReport shows the result of the sample-rate check.
-func printRateReport(r sensor.RateReport) {
+// box draws lines in a frame.
+func box(lines ...string) string {
+	w := 0
+	for _, l := range lines {
+		if n := len([]rune(l)); n > w {
+			w = n
+		}
+	}
+	var b strings.Builder
+	b.WriteString("┌" + strings.Repeat("─", w+2) + "┐\n")
+	for _, l := range lines {
+		b.WriteString("│ " + l + strings.Repeat(" ", w-len([]rune(l))) + " │\n")
+	}
+	b.WriteString("└" + strings.Repeat("─", w+2) + "┘\n")
+	return b.String()
+}
+
+// formatRateReport renders the result of the sample-rate check. A mismatch is
+// a box: it is the one message that must not be missed in a stream of events.
+func formatRateReport(r sensor.RateReport) string {
 	switch r.Kind {
 	case sensor.RateOK:
-		fmt.Fprintf(os.Stderr, "rate check: samples arrive at %.0f Hz, SENSOR_SAMPLE_RATE is %.0f - ok\n", r.Measured, r.Want)
+		return fmt.Sprintf("rate check: samples arrive at %.0f Hz, SENSOR_SAMPLE_RATE is %.0f - ok\n", r.Measured, r.Want)
 	case sensor.RateReplay:
-		fmt.Fprintln(os.Stderr, "rate check: input is much faster than real time (replay), skipped")
-	default:
-		fmt.Fprintf(os.Stderr, "warning: rate check: samples arrive at %.0f Hz but SENSOR_SAMPLE_RATE is %.0f; "+
-			"time and every frequency are wrong. Fix the capture rate or SENSOR_SAMPLE_RATE.\n", r.Measured, r.Want)
+		return "rate check: input is much faster than real time (replay), skipped\n"
 	}
+	return box(
+		"RATE MISMATCH",
+		fmt.Sprintf("Samples arrive at %.0f Hz, but SENSOR_SAMPLE_RATE is %.0f.", r.Measured, r.Want),
+		"Time and every frequency in this run are wrong.",
+		"Fix the rate of the source or SENSOR_SAMPLE_RATE in edge/.env, then restart.",
+	)
 }
+
+func printRateReport(r sensor.RateReport) { fmt.Fprint(os.Stderr, formatRateReport(r)) }
