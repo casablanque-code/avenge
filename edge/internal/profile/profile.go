@@ -235,6 +235,12 @@ func Resolve(s Settings) (Resolved, error) {
 			"each window lasts %.1f s, so anomalies are detected slowly; check SENSOR_SAMPLE_RATE", windowSec))
 	}
 
+	if input == InputPCMS16LE && s.SampleRate > 0 && s.SampleRate != p.SampleRate {
+		res.Warnings = append(res.Warnings, fmt.Sprintf(
+			"SENSOR_SAMPLE_RATE=%d differs from the %s default %d Hz; the capture command must produce exactly %d Hz",
+			s.SampleRate, p.Name, p.SampleRate, s.SampleRate))
+	}
+
 	res.Sensor = cfg
 	return res, nil
 }
@@ -295,6 +301,10 @@ func (r Resolved) Explain() string {
 	}
 	out := box("AVENGE edge configuration", lines)
 	out += "\nA serial interface (SERIAL_INTERFACE) overrides the input shown above.\n"
+	if r.Input == InputPCMS16LE {
+		out += fmt.Sprintf("Capture the sound at exactly %d Hz, mono (arecord -r %d, ffmpeg -ar %d); the engine cannot detect a different rate.\n",
+			c.SampleRate, c.SampleRate, c.SampleRate)
+	}
 	out += "Start the monitor while the signal is in its normal state: the baseline is learned at start.\n"
 	for _, w := range r.Warnings {
 		out += "warning: " + w + "\n"

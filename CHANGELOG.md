@@ -14,6 +14,7 @@ Entries for 0.1.0 to 0.2.4 were reconstructed from the git history and the conte
 - `edge-filter --explain` prints what the chosen profile resolves to (sample rate, window, bin width, baseline, telemetry cadence, thresholds, bands) in a box, with warnings for settings that cannot work, such as a band above the Nyquist frequency.
 - Raw PCM input for sound: `SENSOR_INPUT=pcm_s16le` (the audio default) reads 16-bit little-endian mono PCM from stdin, for example `arecord -q -f S16_LE -r 16000 -c 1 -t raw | edge-filter`.
 - Simulator audio profile: `signal_generator.py --profile audio` (hum, drifting noise, a 2.5 kHz tone as the anomaly) with `--format pcm|wav|jsonl`, so a WAV file can be played through a speaker, and `--profile`, `--format` and `--seed` accepted after the sub-command.
+- `edge-filter --help` lists every flag and every `.env` setting with defaults and examples; a test fails when `edge/.env.example` and the help drift apart.
 - Tests: profile resolution and validation, the PCM reader, and behaviour of the audio profile on synthetic sound (no false onsets, no warning churn, a fading-in tone is detected); a CI smoke test replays sound through the edge image.
 
 - Allocation guards: tests that fail if the per-window path allocates again, a dedicated CI step that runs them without the race detector, and a `BenchmarkIngestWindowNoFlush` benchmark.
@@ -21,6 +22,9 @@ Entries for 0.1.0 to 0.2.4 were reconstructed from the git history and the conte
 
 ### Changed
 
+- **Breaking:** a serial interface (`SERIAL_INTERFACE`) now requires `SENSOR_SAMPLE_RATE` and exits with an error without it. `edge/.env.example` ships the line commented out and `edge/compose.yaml` no longer defaults it to 1600, so a copied example can no longer start with a guessed rate. Set `SENSOR_SAMPLE_RATE=1600` for the ADXL345 firmware.
+- For raw PCM input, a `SENSOR_SAMPLE_RATE` that differs from the profile default produces a warning, and `--explain` states the rate the capture command must use.
+- `--explain` no longer prints the start-up banner before the box.
 - The combined score uses the detectors' thresholds instead of fixed 2.5 and 3.5 (identical for the default configuration), so profiles with other thresholds classify consistently. `anomaly.Config` gained `Alpha`, the baseline adaptation factor that was a hard-coded 0.1 (zero keeps 0.1), and `SensorConfig` gained optional `Bands`, `BandMinStdDev` and `BaselineAlpha`.
 - The edge engine's per-window path (ring buffer, FFT, both detectors, scoring) no longer allocates after initialization: 0 allocations per window instead of 2 (about 10.6 KB), measured on amd64 with Go 1.22. Output is byte-identical to the previous version on a replayed signal with two faults. A window that emits an event still allocates the event and a copy of the band states, because they are handed to another goroutine. New APIs: `filter.SDTInto`, `BandDetector.Update` and `BandDetector.Bands`; `SDT` and `IngestSpectrum` behave as before.
 - SDT and worker buffers are preallocated for at most 64 windows; a longer flush interval grows them once and reuses them.

@@ -88,6 +88,15 @@ curl -sI http://grafana.localhost | head -1              # HTTP/1.1 302 Found
 
 `preflight` and `clickhouse-init` show as `Exited (0)`; that is expected.
 
+## Command line
+
+```
+edge-filter --help       # every flag and every setting, with defaults
+edge-filter --explain    # what the current settings resolve to, with warnings
+```
+
+Settings live in `edge/.env`; an exported variable overrides the file and a flag overrides both. Run `--explain` after every change to them.
+
 ## Signal profiles
 
 One setting tells the edge engine what kind of signal it is watching. Everything that depends on it (window length, frequency bands, thresholds, adaptation speed, telemetry cadence) is filled in automatically.
@@ -100,14 +109,14 @@ SENSOR_PROFILE=audio
 | | `vibration` | `audio` |
 | --- | --- | --- |
 | For | accelerometer on a machine, values in g | microphone, full scale = 1.0 |
-| Default sample rate | 1000 Hz (set `SENSOR_SAMPLE_RATE` to the real rate, e.g. 1600) | 16000 Hz |
+| Default sample rate | 1000 Hz with stdin; serial input requires `SENSOR_SAMPLE_RATE` (e.g. 1600) | 16000 Hz |
 | Window | 512 samples | 1024 samples (64 ms) |
 | Baseline learned from | first 10 windows | first 10 s |
 | Telemetry | every 20 windows | every 10 s |
 | Bands | shaft 0-50, harmonic 50-150, fault 150-400, hf_noise 400-Nyquist (Hz) | low 0-250, mid 250-2000, high 2000-Nyquist (Hz) |
 | Default input on stdin | JSONL `{t, value}` | raw PCM, 16-bit little-endian, mono |
 
-`SENSOR_SAMPLE_RATE` must always equal the real sample rate of your source, because the engine derives time and frequencies from it. `SENSOR_INPUT` (`jsonl` or `pcm_s16le`) overrides the stdin format; a serial interface (`SERIAL_INTERFACE`) overrides it too.
+`SENSOR_SAMPLE_RATE` must always equal the real sample rate of your source, because the engine derives time and frequencies from it. It is required for a serial interface (the engine refuses to start without it) and optional for stdin, where the profile default applies; for sound the capture command must use exactly that rate (`arecord -r`, `ffmpeg -ar`). `SENSOR_INPUT` (`jsonl` or `pcm_s16le`) overrides the stdin format; a serial interface (`SERIAL_INTERFACE`) overrides it too.
 
 To see what a profile resolves to, with warnings for settings that cannot work (for example a frequency band above the Nyquist frequency):
 

@@ -24,9 +24,7 @@
 //
 // Flags:
 //
-//	--broker      MQTT broker address (default "localhost:1883")
-//	--sensor-id   sensor identifier   (default "bearing_01")
-//	--no-mqtt     disable MQTT, print to stdout only
+// Run `edge-filter --help` for the flags and settings (see help.go).
 package main
 
 import (
@@ -57,13 +55,14 @@ func main() {
 	envfile.Load(".env")
 	envfile.Load("edge/.env")
 
-	broker := flag.String("broker", defaultBroker(), "MQTT broker address")
-	sensorID := flag.String("sensor-id", envOr("SENSOR_ID", "bearing_01"), "Sensor identifier (default: $SENSOR_ID)")
-	noMQTT := flag.Bool("no-mqtt", false, "Disable MQTT output")
-	explain := flag.Bool("explain", false, "Print the resolved configuration (profile, windows, bands) and exit")
+	opts := defineFlags(flag.CommandLine)
+	broker, sensorID, noMQTT, explain := opts.broker, opts.sensorID, opts.noMQTT, opts.explain
+	flag.Usage = func() { fmt.Fprint(os.Stderr, usageText()) }
 	flag.Parse()
 
-	fmt.Fprintf(os.Stderr, "edge-filter  sensor=%s  broker=%s\n", *sensorID, *broker)
+	if !*explain {
+		fmt.Fprintf(os.Stderr, "edge-filter  sensor=%s  broker=%s\n", *sensorID, *broker)
+	}
 
 	// ── Sensor configuration ─────────────────────────────────────────────
 	// SENSOR_SAMPLE_RATE must match the firmware's actual output data rate
@@ -119,6 +118,10 @@ func main() {
 	replay := false // true for stdin (JSONL) input: block instead of dropping
 	switch iface := os.Getenv("SERIAL_INTERFACE"); iface {
 	case "usb", "rs485":
+		if err := requireSerialRate(settings); err != nil {
+			fmt.Fprintf(os.Stderr, "config: %v\n", err)
+			os.Exit(2)
+		}
 		port := os.Getenv("USB_PORT")
 		baud := 230400
 		if iface == "rs485" {
@@ -303,6 +306,17 @@ shutdown:
 }
 
 // ── Console output ─────────────────────────────────────────────────────────
+
+// requireSerialRate refuses to start a serial source without an explicit
+// SENSOR_SAMPLE_RATE. A serial device sends no clock, so time and every
+// frequency are derived from this value; guessing it would silently shift
+// all results.
+func requireSerialRate(s profile.Settings) error {
+	if s.SampleRate > 0 {
+		return nil
+	}
+	return fmt.Errorf("SENSOR_SAMPLE_RATE is required for SERIAL_INTERFACE: set the real sample rate of the device in Hz (ADXL345 firmware: 1600)")
+}
 
 // envOr returns the value of environment variable key, or def if unset/empty.
 func envOr(key, def string) string {

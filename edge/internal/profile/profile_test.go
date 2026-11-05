@@ -146,3 +146,26 @@ func TestExplainIsAlignedAndInformative(t *testing.T) {
 		}
 	}
 }
+
+func TestPCMRateDifferentFromProfileWarns(t *testing.T) {
+	r, err := Resolve(Settings{Profile: "audio", SampleRate: 8000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(strings.Join(r.Warnings, "\n"), "SENSOR_SAMPLE_RATE=8000") {
+		t.Fatalf("expected a warning naming the rate, got %v", r.Warnings)
+	}
+	if r, _ = Resolve(Settings{Profile: "audio"}); len(r.Warnings) != 0 {
+		t.Fatalf("profile default rate must not warn: %v", r.Warnings)
+	}
+	if r, _ = Resolve(Settings{Profile: "vibration", SampleRate: 1600}); len(r.Warnings) != 0 {
+		t.Fatalf("jsonl input at 1600 Hz must not warn: %v", r.Warnings)
+	}
+}
+
+func TestExplainTellsCaptureRate(t *testing.T) {
+	r, _ := Resolve(Settings{Profile: "audio"})
+	if !strings.Contains(r.Explain(), "arecord -r 16000") {
+		t.Fatal("explain for PCM input must state the capture rate")
+	}
+}
