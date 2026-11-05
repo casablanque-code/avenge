@@ -66,3 +66,28 @@ func TestRateMonitorQuietWhenOKAfterFirst(t *testing.T) {
 		t.Fatalf("OK must be reported once, got %d reports", len(got))
 	}
 }
+
+func TestRateMonitorLatestTracksRecoveryAndShortRuns(t *testing.T) {
+	m := NewRateMonitor(1000)
+	if _, ok := m.Latest(); ok {
+		t.Fatal("nothing measured yet")
+	}
+	t0 := time.Unix(1000, 0)
+	// 12 s at the wrong rate, then 61 s at the right one.
+	var n int64
+	for s := 0; s <= 12; s++ {
+		n = int64(500 * s)
+		m.Observe(t0.Add(time.Duration(s)*time.Second), n)
+	}
+	if r, ok := m.Latest(); !ok || r.Kind != RateMismatch {
+		t.Fatalf("want a mismatch, got %+v %v", r, ok)
+	}
+	base := n
+	for s := 13; s <= 80; s++ {
+		n = base + int64(1000*(s-12))
+		m.Observe(t0.Add(time.Duration(s)*time.Second), n)
+	}
+	if r, ok := m.Latest(); !ok || r.Kind != RateOK {
+		t.Fatalf("after the rate was fixed Latest must say OK, got %+v", r)
+	}
+}

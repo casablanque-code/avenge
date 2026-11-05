@@ -48,7 +48,9 @@ type RateMonitor struct {
 	stage   int // 0 settling, 1 first measurement, 2 periodic
 	t0      time.Time
 	n0      int64
-	last    RateKind
+
+	latest    RateReport
+	hasLatest bool
 }
 
 // NewRateMonitor returns a monitor for the given configured sample rate (Hz).
@@ -89,15 +91,20 @@ func (m *RateMonitor) Observe(now time.Time, samples int64) (RateReport, bool) {
 		m.t0, m.n0, m.stage = now, samples, 2
 
 		kind := classify(measured, m.want)
-		show := first || (kind == RateMismatch)
-		m.last = kind
-		if !show {
+		rep := RateReport{Measured: measured, Want: m.want, Kind: kind, First: first}
+		m.latest, m.hasLatest = rep, true
+		if !(first || kind == RateMismatch) {
 			return RateReport{}, false
 		}
-		return RateReport{Measured: measured, Want: m.want, Kind: kind, First: first}, true
+		return rep, true
 	}
 	return RateReport{}, false
 }
+
+// Latest returns the most recent measurement, shown or not, so that a summary
+// at the end of the run can state the outcome of the check. The second result
+// is false if the run was too short to measure.
+func (m *RateMonitor) Latest() (RateReport, bool) { return m.latest, m.hasLatest }
 
 func classify(measured, want float64) RateKind {
 	ratio := measured / want
