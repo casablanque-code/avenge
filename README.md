@@ -125,6 +125,7 @@ docker compose -f core/compose.yaml up -d
 # 2. Edge binary: set MQTT_USER=edge and MQTT_PASSWORD (= MQTT_EDGE_PASSWORD) in edge/.env
 cd edge && go build -o edge-filter ./cmd/edge-filter/ && cd ..
 
+# The simulator runs at 1000 Hz, the vibration default: no rate setting needed.
 # Normal mode - synthetic steady-state signal
 python3 firmware-sim/signal_generator.py stream \
   | ./edge/edge-filter --broker localhost:1883 --sensor-id bearing_01
@@ -151,6 +152,7 @@ Edge device (Raspberry Pi or similar):
 ```
 cp edge/.env.example edge/.env
 # set SERIAL_INTERFACE, SERIAL_PORT, DIALOUT_GID (getent group dialout),
+# SENSOR_SAMPLE_RATE=<real rate of the sensor in Hz, e.g. 1600> (required),
 # CENTRAL_HOST=<core IP>, MQTT_PASSWORD=<MQTT_EDGE_PASSWORD>
 docker compose -f edge/compose.yaml up -d
 docker compose -f edge/compose.yaml logs -f avenge-edge

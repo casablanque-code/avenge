@@ -29,6 +29,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/casablanque-code/smart-manufacturing/edge/internal/anomaly"
 	"github.com/casablanque-code/smart-manufacturing/edge/internal/fft"
@@ -128,6 +129,14 @@ type WorkerEvent struct {
 	// FinalScore is the combined z-score driving Severity: max of the
 	// RMS detector's z-score and the band detector's max z-score.
 	FinalScore float64
+	// WindowTime is the wall-clock time at which the window completed. It is
+	// taken in the worker, not when the event is published, so queueing and
+	// MQTT delays never shift the timestamp.
+	WindowTime time.Time
+	// Window is the 1-based number of the window that produced this event,
+	// counted from the start of the run; window * FFTWindow / SampleRate is
+	// the time since start in sample time.
+	Window int
 	// DominantSignal names which input produced FinalScore — "rms" or
 	// "band" — useful for distinguishing a broad energy increase from a
 	// narrow frequency-specific spike when reviewing an alert.
@@ -154,6 +163,7 @@ type SensorWorker struct {
 	sdtOut  []filter.Point // SDT result, only its length is used
 
 	totalWindows    int
+	aboveWarning    int // windows whose combined severity was above normal
 	totalRaw        int
 	totalCompressed int
 }
@@ -260,6 +270,10 @@ func (w *SensorWorker) ingestSample(s Sample) *WorkerEvent {
 	// scoring.Combine takes max(rmsZ, bandZ) so a strong band-specific
 	// signal can't be silently outvoted by a calm overall RMS.
 	score := scoring.Combine(w.det.LastZScore(), bandResult.MaxZScore, w.scoreThr)
+	if score.Severity != anomaly.SeverityNormal {
+		w.aboveWarning++
+	}
+	windowTime := time.Now()
 
 	// SDT flush — emit a telemetry event every SDTFlushEvery windows.
 	// This is independent of anomaly state transitions: we always want
@@ -281,6 +295,8 @@ func (w *SensorWorker) ingestSample(s Sample) *WorkerEvent {
 			WindowRMS:        windowRMS,
 			BandResult:       bandResult,
 			IsTelemetryFlush: true,
+			WindowTime:       windowTime,
+			Window:           w.totalWindows,
 			SDTRatio:         ratio,
 			IsAnomaly:        score.Severity != anomaly.SeverityNormal,
 			Severity:         string(score.Severity),
@@ -300,6 +316,8 @@ func (w *SensorWorker) ingestSample(s Sample) *WorkerEvent {
 		return &WorkerEvent{
 			SensorID:       w.cfg.ID,
 			Event:          event,
+			WindowTime:     windowTime,
+			Window:         w.totalWindows,
 			WindowRMS:      windowRMS,
 			BandResult:     bandResult,
 			IsAnomaly:      score.Severity != anomaly.SeverityNormal,
@@ -310,6 +328,20 @@ func (w *SensorWorker) ingestSample(s Sample) *WorkerEvent {
 	}
 
 	return flushEvent // nil when no flush and no transition
+}
+
+// WorkerStats are the counters of one worker.
+type WorkerStats struct {
+	// Windows is how many full windows were processed.
+	Windows int
+	// AboveWarning is how many of them had a combined severity above normal.
+	AboveWarning int
+}
+
+// Stats returns the worker's counters. Call it only after the worker has
+// stopped; Manager.Stats does that safely.
+func (w *SensorWorker) Stats() WorkerStats {
+	return WorkerStats{Windows: w.totalWindows, AboveWarning: w.aboveWarning}
 }
 
 // CompressionRatio returns the current SDT compression ratio.
@@ -324,6 +356,7 @@ func (w *SensorWorker) CompressionRatio() float64 {
 type Manager struct {
 	mu      sync.RWMutex
 	workers map[string]*workerHandle
+	stats   map[string]WorkerStats // final counters of stopped workers
 	events  chan WorkerEvent
 	wg      sync.WaitGroup
 }
@@ -341,6 +374,7 @@ type workerHandle struct {
 func NewManager(bufSize int) *Manager {
 	return &Manager{
 		workers: make(map[string]*workerHandle),
+		stats:   make(map[string]WorkerStats),
 		events:  make(chan WorkerEvent, bufSize),
 	}
 }
@@ -432,6 +466,15 @@ func (m *Manager) Events() <-chan WorkerEvent {
 	return m.events
 }
 
+// Stats returns the final counters of a sensor that has stopped; call it after
+// Stop. The second result is false if the sensor never ran or is still running.
+func (m *Manager) Stats(id string) (WorkerStats, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	st, ok := m.stats[id]
+	return st, ok
+}
+
 // Sensors returns the IDs of all currently registered sensors.
 func (m *Manager) Sensors() []string {
 	m.mu.RLock()
@@ -471,6 +514,11 @@ func (m *Manager) Stop() {
 // It reads from h.input and routes WorkerEvents to m.events.
 func (m *Manager) runWorker(ctx context.Context, h *workerHandle) {
 	defer m.wg.Done()
+	defer func() {
+		m.mu.Lock()
+		m.stats[h.worker.cfg.ID] = h.worker.Stats()
+		m.mu.Unlock()
+	}()
 	for {
 		select {
 		case <-ctx.Done():

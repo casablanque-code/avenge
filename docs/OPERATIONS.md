@@ -29,7 +29,7 @@ That is all. Startup is ordered and checked automatically:
 Edge (Raspberry Pi):
 
 ```
-cp edge/.env.example edge/.env         # SERIAL_INTERFACE, CENTRAL_HOST, MQTT_PASSWORD, DIALOUT_GID
+cp edge/.env.example edge/.env         # SERIAL_INTERFACE, SENSOR_SAMPLE_RATE, CENTRAL_HOST, MQTT_PASSWORD, DIALOUT_GID
 docker compose -f edge/compose.yaml up -d
 ```
 
@@ -72,6 +72,8 @@ Rules: letters and digits only. Never commit `.env`.
 | ------------------------------------------------------- | ----------------------------------------------- | --- |
 | `required variable ... is missing a value`              | `core/.env` missing or incomplete               | `cp core/.env.example core/.env`, fill in every password. |
 | `preflight` prints `ERROR: ... placeholder` or `... only letters and digits` | Placeholder or unsupported character in a password | Fix the named variable in `core/.env`, run `up -d`. |
+| Edge exits: `SENSOR_SAMPLE_RATE is required for SERIAL_INTERFACE` | Serial input without a sample rate | Set the real rate of the sensor in Hz in `edge/.env` (ADXL345 firmware: 1600), `up -d`. |
+| Edge prints `warning: rate check: samples arrive at ... Hz` | The source runs at another rate than `SENSOR_SAMPLE_RATE` | Make the capture command or the firmware use the configured rate, or set `SENSOR_SAMPLE_RATE` to the measured one. |
 | Telegraf log: `not authorised`                          | `.env` edited but containers not recreated      | `docker compose -f core/compose.yaml up -d`. |
 | Edge log: `CONNACK: ... not authorized`                 | `MQTT_PASSWORD` differs from `MQTT_EDGE_PASSWORD` | Align the two, `up -d` on the device. |
 | Telegraf log: `Not enough privileges`                   | Schema from an older version                    | `docker compose -f core/compose.yaml run --rm clickhouse-init`, then `up -d`. |
@@ -96,6 +98,23 @@ edge-filter --explain    # what the current settings resolve to, with warnings
 ```
 
 Settings live in `edge/.env`; an exported variable overrides the file and a flag overrides both. Run `--explain` after every change to them.
+
+## Sample-rate check
+
+A serial device or a microphone pipe sends no clock, so the engine trusts `SENSOR_SAMPLE_RATE` for time and for every frequency. To catch a wrong value it measures how fast samples really arrive and prints one line after about 12 seconds:
+
+```
+rate check: samples arrive at 1002 Hz, SENSOR_SAMPLE_RATE is 1000 - ok
+warning: rate check: samples arrive at 8013 Hz but SENSOR_SAMPLE_RATE is 16000; ...
+```
+
+The first 2 seconds are ignored (pipes deliver a start-up burst), a deviation above 5% is a warning, and a wrong rate is reported again every minute. Input much faster than real time (a file or a generator) is recognised as a replay and skipped. If the check shows a different rate than you expected, fix the source or the setting; do not ignore the warning, all frequencies and the detection delay depend on it.
+
+## Console output
+
+Each printed line is one event: a periodic telemetry flush or an anomaly state change, not one window. `win N` is the number of the window that produced the event; `N * window length` is the time since start in sample time. The summary at the end counts all processed windows and the windows whose combined severity was above normal (`Above warning`).
+
+Timestamps sent over MQTT are the wall-clock time at which the window completed on the edge machine. When the core runs on another host, keep both clocks in sync (NTP) before comparing events.
 
 ## Signal profiles
 
