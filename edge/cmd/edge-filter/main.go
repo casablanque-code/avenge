@@ -248,6 +248,8 @@ func main() {
 					float32(ev.Event.ZScore),
 					float32(ev.Event.BaselineMean),
 					float32(ev.Event.BaselineStdDev),
+					ev.Event.Signal,
+					ev.Event.Band,
 				); err != nil {
 					fmt.Fprintf(os.Stderr, "publish anomaly: %v\n", err)
 				}
@@ -372,10 +374,14 @@ func printWorkerEvent(ev sensor.WorkerEvent) {
 		ev.Window, ev.SensorID, status, ev.WindowRMS, ev.FinalScore, ev.DominantSignal, tag)
 
 	if ev.Event != nil {
+		src := ev.Event.Signal
+		if ev.Event.Band != "" {
+			src += " " + ev.Event.Band
+		}
 		if ev.Event.Anomaly {
-			fmt.Printf("  ⚡ ANOMALY [%s]", ev.Event.Severity)
+			fmt.Printf("  ⚡ ANOMALY [%s] via %s", ev.Event.Severity, src)
 		} else {
-			fmt.Printf("  ✅ CLEAR  [%s]", ev.Event.Severity)
+			fmt.Printf("  ✅ CLEAR  (was %s)", src)
 		}
 	}
 
@@ -392,6 +398,8 @@ func printStats(samples int64, events int, st sensor.WorkerStats, sampleRate int
 	fmt.Printf("  Total samples   : %d (%.1f s)\n", samples, float64(samples)/float64(sampleRate))
 	fmt.Printf("  Windows         : %d\n", st.Windows)
 	if st.Windows > 0 {
+		fmt.Printf("  In anomaly      : %d / %d (%.1f%%)\n",
+			st.InAnomaly, st.Windows, 100*float64(st.InAnomaly)/float64(st.Windows))
 		fmt.Printf("  Above warning   : %d / %d (%.1f%%)\n",
 			st.AboveWarning, st.Windows, 100*float64(st.AboveWarning)/float64(st.Windows))
 	}

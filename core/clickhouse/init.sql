@@ -49,13 +49,21 @@ CREATE TABLE IF NOT EXISTS iot.anomaly_events
     rms             Float32,
     z_score         Float32,
     baseline_mean   Float32,
-    baseline_stddev Float32
+    baseline_stddev Float32,
+    -- what drove the anomaly: 'rms' or 'band'; band names the frequency band
+    dominant_signal LowCardinality(String) DEFAULT '',
+    band            LowCardinality(String) DEFAULT ''
 )
 ENGINE = MergeTree()
 PARTITION BY toYYYYMM(ts)
 ORDER BY (sensor_id, ts)
 TTL toDateTime(ts) + INTERVAL 90 DAY
 SETTINGS index_granularity = 8192;
+
+-- Upgrade of an existing database: older tables lack the two columns.
+-- Old rows keep the empty default.
+ALTER TABLE iot.anomaly_events ADD COLUMN IF NOT EXISTS dominant_signal LowCardinality(String) DEFAULT '';
+ALTER TABLE iot.anomaly_events ADD COLUMN IF NOT EXISTS band LowCardinality(String) DEFAULT '';
 
 -- ── MV: telemetry_raw → telemetry ─────────────────────────────────────
 CREATE MATERIALIZED VIEW IF NOT EXISTS iot.mv_telemetry_parse
@@ -75,7 +83,10 @@ ARRAY JOIN JSONExtractArrayRaw(raw, 'metrics') AS elem
 WHERE JSONExtractString(elem, 'name') = 'telemetry';
 
 -- ── MV: telemetry_raw → anomaly_events ────────────────────────────────
-CREATE MATERIALIZED VIEW IF NOT EXISTS iot.mv_anomaly_parse
+-- Dropped and recreated on every run so that an existing database picks up
+-- the new columns; the stored rows are in iot.anomaly_events and stay.
+DROP VIEW IF EXISTS iot.mv_anomaly_parse;
+CREATE MATERIALIZED VIEW iot.mv_anomaly_parse
 TO iot.anomaly_events
 AS SELECT
     toDateTime64(JSONExtractUInt(elem, 'timestamp') / 1000, 3, 'UTC') AS ts,
@@ -85,7 +96,9 @@ AS SELECT
     JSONExtractFloat(JSONExtractRaw(elem, 'fields'), 'rms')            AS rms,
     JSONExtractFloat(JSONExtractRaw(elem, 'fields'), 'z_score')        AS z_score,
     JSONExtractFloat(JSONExtractRaw(elem, 'fields'), 'baseline_mean')  AS baseline_mean,
-    JSONExtractFloat(JSONExtractRaw(elem, 'fields'), 'baseline_stddev') AS baseline_stddev
+    JSONExtractFloat(JSONExtractRaw(elem, 'fields'), 'baseline_stddev') AS baseline_stddev,
+    JSONExtractString(JSONExtractRaw(elem, 'fields'), 'dominant_signal') AS dominant_signal,
+    JSONExtractString(JSONExtractRaw(elem, 'fields'), 'band')           AS band
 FROM iot.telemetry_raw
 ARRAY JOIN JSONExtractArrayRaw(raw, 'metrics') AS elem
 WHERE JSONExtractString(elem, 'name') = 'anomaly_events';

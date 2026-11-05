@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"testing"
 
+	"github.com/casablanque-code/smart-manufacturing/edge/internal/anomaly"
 	"github.com/casablanque-code/smart-manufacturing/edge/internal/profile"
 	"github.com/casablanque-code/smart-manufacturing/edge/internal/sensor"
 )
@@ -147,6 +148,93 @@ func TestAudioProfileCatchesAnAppearingTone(t *testing.T) {
 		}
 		if delay < 0 || delay > c.within {
 			t.Fatalf("amp %.3f: onset delay %.2f s, want within %.0f s", c.amp, delay, c.within)
+		}
+	}
+}
+
+// quietRoom is a hum with little broadband noise, so the high band is very
+// quiet and a faint tone there stands out in the band but barely changes
+// the overall RMS.
+func quietRoom(rng *rand.Rand, t float64) float64 {
+	return 0.020*math.Sin(2*math.Pi*120*t) + rng.NormFloat64()*0.004
+}
+
+// toneEvents feeds a quiet room with a 3 kHz tone between from and to
+// (seconds) and returns the anomaly events in order.
+func toneEvents(t *testing.T, seed int64, seconds, from, to, amp float64) []anomaly.Event {
+	t.Helper()
+	res, err := profile.Resolve(profile.Settings{Profile: "audio", SensorID: "mic"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mgr := sensor.NewManager(1 << 16)
+	if err := mgr.Add(res.Sensor); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan []anomaly.Event)
+	go func() {
+		var out []anomaly.Event
+		for ev := range mgr.Events() {
+			if ev.Event != nil {
+				out = append(out, *ev.Event)
+			}
+		}
+		done <- out
+	}()
+	rng := rand.New(rand.NewSource(seed))
+	rate := float64(res.Sensor.SampleRate)
+	for i := 0; i < int(seconds*rate); i++ {
+		ts := float64(i) / rate
+		v := quietRoom(rng, ts)
+		if ts >= from && ts < to {
+			v += amp * math.Sin(2*math.Pi*3000*ts)
+		}
+		mgr.SendBlocking(res.Sensor.ID, sensor.Sample{T: ts, Value: v})
+	}
+	mgr.Stop()
+	return <-done
+}
+
+// A faint tone adds only a few percent to the RMS, so the RMS detector does
+// not see it, but it stands out in its frequency band. It must produce an
+// onset that names the band and a matching clear when the tone stops; a clear
+// must never appear without an onset before it. (Synthetic signal; this
+// guards the logic, it does not measure accuracy on real rooms.)
+func TestAudioProfileReportsABandOnlyAnomaly(t *testing.T) {
+	if testing.Short() {
+		t.Skip("long synthetic run")
+	}
+	for seed := int64(1); seed <= 3; seed++ {
+		evs := toneEvents(t, seed, 120, 45, 75, 0.004)
+		var onsets, clears int
+		for i, e := range evs {
+			if e.Anomaly {
+				onsets++
+				if i > 0 && evs[i-1].Anomaly {
+					t.Errorf("seed %d: two onsets in a row at T=%.1f", seed, e.T)
+				}
+			} else {
+				clears++
+				if i == 0 || !evs[i-1].Anomaly {
+					t.Errorf("seed %d: clear without a preceding onset at T=%.1f", seed, e.T)
+				}
+			}
+		}
+		if onsets != 1 || clears != 1 {
+			t.Fatalf("seed %d: want exactly one onset and one clear, got %d and %d: %+v", seed, onsets, clears, evs)
+		}
+		on, off := evs[0], evs[1]
+		if on.T < 44 || on.T > 49 { // T is the start of the window that first contained the tone
+			t.Errorf("seed %d: onset at T=%.1f, want within 4 s of the tone starting at 45", seed, on.T)
+		}
+		if on.Signal != "band" || on.Band != "high" {
+			t.Errorf("seed %d: onset should name the high band, got signal=%q band=%q", seed, on.Signal, on.Band)
+		}
+		if off.T < 75 || off.T > 80 {
+			t.Errorf("seed %d: clear at T=%.1f, want within 5 s after the tone stops at 75", seed, off.T)
+		}
+		if off.Signal != on.Signal || off.Band != on.Band {
+			t.Errorf("seed %d: clear should repeat the onset's source (%s %s), got %s %s", seed, on.Signal, on.Band, off.Signal, off.Band)
 		}
 	}
 }

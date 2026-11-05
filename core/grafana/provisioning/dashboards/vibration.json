@@ -191,7 +191,7 @@
       },
       "targets": [
         {
-          "rawSql": "SELECT ts AS time, sensor_id, event_type, severity, round(rms,4) AS rms, round(z_score,2) AS z_score FROM iot.anomaly_events WHERE $__timeFilter(ts) ORDER BY ts DESC LIMIT 50",
+          "rawSql": "SELECT ts AS time, sensor_id, event_type, severity, round(rms,4) AS rms, round(z_score,2) AS z_score, concat(dominant_signal, if(band != '', concat(' ', band), '')) AS source FROM iot.anomaly_events WHERE $__timeFilter(ts) ORDER BY ts DESC LIMIT 50",
           "format": 1
         }
       ]
