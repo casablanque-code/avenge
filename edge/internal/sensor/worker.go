@@ -63,6 +63,18 @@ type SensorConfig struct {
 	ExitThreshold   float64
 	BaselineWindows int
 	MinStdDev       float64
+
+	// Bands overrides the frequency bands watched by the band detector.
+	// nil keeps anomaly.DefaultBands (tuned for a 50 Hz machine).
+	Bands []anomaly.FreqBand
+
+	// BandMinStdDev overrides the per-band stddev floor. 0 keeps the
+	// band detector default.
+	BandMinStdDev float64
+
+	// BaselineAlpha is the per-window EMA factor of both detectors'
+	// baselines. 0 keeps the built-in 0.1.
+	BaselineAlpha float64
 }
 
 // DefaultSensorConfig returns baseline parameters for a 1 kHz MPU-6050
@@ -146,6 +158,16 @@ type SensorWorker struct {
 	totalCompressed int
 }
 
+// scoreThresholds makes the combined score use the same bounds as the
+// detectors, so a profile with other thresholds classifies consistently. For
+// the default configuration this equals scoring.DefaultThresholds().
+func scoreThresholds(cfg SensorConfig) scoring.Thresholds {
+	if cfg.EnterThreshold <= 0 || cfg.ExitThreshold <= 0 {
+		return scoring.DefaultThresholds()
+	}
+	return scoring.Thresholds{Warning: cfg.ExitThreshold, Critical: cfg.EnterThreshold}
+}
+
 // maxPreallocWindows bounds how many windows of SDT history are allocated up
 // front. A longer flush interval still works: the buffers grow once and are
 // then reused, so steady state does not allocate.
@@ -166,22 +188,30 @@ func newSensorWorker(cfg SensorConfig) *SensorWorker {
 		EnterThreshold:  cfg.EnterThreshold,
 		ExitThreshold:   cfg.ExitThreshold,
 		MinStdDev:       cfg.MinStdDev,
+		Alpha:           cfg.BaselineAlpha,
 	}
 
 	bandCfg := anomaly.DefaultBandConfig()
 	bandCfg.WarmupWindows = cfg.BaselineWindows
 	bandCfg.EnterThreshold = cfg.EnterThreshold + 0.5 // slightly stricter for bands
 	bandCfg.ExitThreshold = cfg.ExitThreshold
+	if cfg.BandMinStdDev > 0 {
+		bandCfg.MinStdDev = cfg.BandMinStdDev
+	}
+	if cfg.BaselineAlpha > 0 {
+		bandCfg.Alpha = cfg.BaselineAlpha
+	}
+	bands := cfg.Bands
+	if bands == nil {
+		bands = anomaly.DefaultBands(cfg.SampleRate)
+	}
 
 	return &SensorWorker{
-		cfg:     cfg,
-		fftProc: fft.NewProcessor(cfg.FFTWindow, cfg.SampleRate),
-		det:     anomaly.NewDetector(detCfg),
-		bandDet: anomaly.NewBandDetector(
-			anomaly.DefaultBands(cfg.SampleRate),
-			bandCfg,
-		),
-		scoreThr: scoring.DefaultThresholds(),
+		cfg:      cfg,
+		fftProc:  fft.NewProcessor(cfg.FFTWindow, cfg.SampleRate),
+		det:      anomaly.NewDetector(detCfg),
+		bandDet:  anomaly.NewBandDetector(bands, bandCfg),
+		scoreThr: scoreThresholds(cfg),
 		sdt:      make([]filter.Point, 0, cfg.FFTWindow*bufferWindows(cfg)),
 		sdtOut:   make([]filter.Point, 0, cfg.FFTWindow*bufferWindows(cfg)),
 		ringBuf:  make([]float64, cfg.FFTWindow),

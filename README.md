@@ -59,7 +59,7 @@ avenge/
 ├── firmware-sim/                # Hardware-free signal generator (Python)
 ├── edge/                        # AVENGE engine (Go)
 │   ├── cmd/edge-filter/         # Pipeline entrypoint, graceful shutdown
-│   ├── internal/                # sensor, fft, filter (SDT), anomaly, scoring, mqtt, envfile
+│   ├── internal/                # sensor, profile, fft, filter (SDT), anomaly, scoring, mqtt, envfile
 │   ├── Dockerfile               # Multi-stage build -> distroless, ARM64-ready
 │   ├── compose.yaml             # Deploy target: Raspberry Pi / edge device
 │   └── .env.example
@@ -97,6 +97,20 @@ cp edge/.env.example edge/.env
 Passwords, which file owns which, and how to change them: [`docs/OPERATIONS.md`](docs/OPERATIONS.md#secrets-who-owns-what).
 
 `edge/.env` selects the sensor source (`SERIAL_INTERFACE`), the core address (`CENTRAL_HOST`) and the MQTT credentials. Run directly (no Docker), the binary loads `edge/.env` itself. Priority, highest to lowest: CLI flag (`--broker`), shell-exported env var, `edge/.env`, built-in default.
+
+### Signal type: one setting
+
+```
+SENSOR_PROFILE=vibration    # default; or: audio
+```
+
+The profile fills in everything else that depends on the kind of signal: window length, frequency bands, thresholds, how fast the baseline adapts and how often telemetry is sent. Nothing needs calibrating; the engine learns the normal level from the first seconds, so start it while the machine or sound is in its normal state. `edge-filter --explain` prints what a profile resolves to, in plain language:
+
+```
+SENSOR_PROFILE=audio edge-filter --explain
+```
+
+Sound from a microphone, a speaker test and the limits of the audio profile: [`docs/OPERATIONS.md`](docs/OPERATIONS.md#signal-profiles).
 
 ---
 
@@ -150,7 +164,7 @@ The image is published to `ghcr.io/casablanque-code/avenge-edge` by the Release 
 
 | MQTT Topic | Payload | Frequency |
 |---|---|---|
-| `sm/telemetry/<sensor_id>` | SDT turning points + window RMS | Every ~10s (20 windows) |
+| `sm/telemetry/<sensor_id>` | Window RMS, SDT compression ratio, combined score and severity (the compressed points themselves are not transmitted) | Every 20 windows (vibration) or every 10 s (audio) |
 | `sm/anomaly/<sensor_id>` | State transition (`onset` / `clear`) | On state change only |
 
 | ClickHouse Table | Engine | TTL | Purpose |

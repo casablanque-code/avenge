@@ -10,14 +10,25 @@ Entries for 0.1.0 to 0.2.4 were reconstructed from the git history and the conte
 
 ### Added
 
+- Signal profiles: `SENSOR_PROFILE=vibration|audio` fills in the window length, frequency bands, thresholds, baseline time constant and telemetry cadence for the kind of signal, so nothing else needs tuning. `vibration` (the default) equals the previous built-in values exactly; the output on a replayed signal is byte-identical to the previous version. `audio` is a first approximation calibrated on synthetic sound.
+- `edge-filter --explain` prints what the chosen profile resolves to (sample rate, window, bin width, baseline, telemetry cadence, thresholds, bands) in a box, with warnings for settings that cannot work, such as a band above the Nyquist frequency.
+- Raw PCM input for sound: `SENSOR_INPUT=pcm_s16le` (the audio default) reads 16-bit little-endian mono PCM from stdin, for example `arecord -q -f S16_LE -r 16000 -c 1 -t raw | edge-filter`.
+- Simulator audio profile: `signal_generator.py --profile audio` (hum, drifting noise, a 2.5 kHz tone as the anomaly) with `--format pcm|wav|jsonl`, so a WAV file can be played through a speaker, and `--profile`, `--format` and `--seed` accepted after the sub-command.
+- Tests: profile resolution and validation, the PCM reader, and behaviour of the audio profile on synthetic sound (no false onsets, no warning churn, a fading-in tone is detected); a CI smoke test replays sound through the edge image.
+
 - Allocation guards: tests that fail if the per-window path allocates again, a dedicated CI step that runs them without the race detector, and a `BenchmarkIngestWindowNoFlush` benchmark.
 - `CHANGELOG.md`. Release notes are now generated from it, a tag without a changelog section fails the release before anything is published, and `tests/lint/repo-checks.sh` validates its structure.
 
 ### Changed
 
+- The combined score uses the detectors' thresholds instead of fixed 2.5 and 3.5 (identical for the default configuration), so profiles with other thresholds classify consistently. `anomaly.Config` gained `Alpha`, the baseline adaptation factor that was a hard-coded 0.1 (zero keeps 0.1), and `SensorConfig` gained optional `Bands`, `BandMinStdDev` and `BaselineAlpha`.
 - The edge engine's per-window path (ring buffer, FFT, both detectors, scoring) no longer allocates after initialization: 0 allocations per window instead of 2 (about 10.6 KB), measured on amd64 with Go 1.22. Output is byte-identical to the previous version on a replayed signal with two faults. A window that emits an event still allocates the event and a copy of the band states, because they are handed to another goroutine. New APIs: `filter.SDTInto`, `BandDetector.Update` and `BandDetector.Bands`; `SDT` and `IngestSpectrum` behave as before.
 - SDT and worker buffers are preallocated for at most 64 windows; a longer flush interval grows them once and reuses them.
 - Documentation claims narrowed to what is tested: "zero-heap-allocation hot path" became "allocation-free per-window processing", and the unmeasured "scalable to thousands of sensor streams" was removed. The README technology table no longer lists component versions; `core/compose.yaml` is the source of truth.
+
+### Fixed
+
+- Documentation said telemetry carried SDT turning points; it carries only the compression ratio, the compressed points are not transmitted. The description of band scoring said "weighted", but the larger of the RMS and band z-scores decides; the claim that bands detect bearing defects, imbalance and misalignment now says they are symptoms, not diagnoses.
 
 ## [0.2.4] - 2026-11-02
 

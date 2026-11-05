@@ -49,6 +49,7 @@ services:
       RS485_BAUD:  ${RS485_BAUD:-230400}
 
       SENSOR_ID:          ${SENSOR_ID:-bearing_01}
+      SENSOR_PROFILE:     ${SENSOR_PROFILE:-vibration}
       SENSOR_SAMPLE_RATE: ${SENSOR_SAMPLE_RATE:-1600}
 
       # Core stack — read by the binary (defaultBroker in main.go).

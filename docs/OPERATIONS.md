@@ -88,6 +88,65 @@ curl -sI http://grafana.localhost | head -1              # HTTP/1.1 302 Found
 
 `preflight` and `clickhouse-init` show as `Exited (0)`; that is expected.
 
+## Signal profiles
+
+One setting tells the edge engine what kind of signal it is watching. Everything that depends on it (window length, frequency bands, thresholds, adaptation speed, telemetry cadence) is filled in automatically.
+
+```
+SENSOR_PROFILE=vibration    # default
+SENSOR_PROFILE=audio
+```
+
+| | `vibration` | `audio` |
+| --- | --- | --- |
+| For | accelerometer on a machine, values in g | microphone, full scale = 1.0 |
+| Default sample rate | 1000 Hz (set `SENSOR_SAMPLE_RATE` to the real rate, e.g. 1600) | 16000 Hz |
+| Window | 512 samples | 1024 samples (64 ms) |
+| Baseline learned from | first 10 windows | first 10 s |
+| Telemetry | every 20 windows | every 10 s |
+| Bands | shaft 0-50, harmonic 50-150, fault 150-400, hf_noise 400-Nyquist (Hz) | low 0-250, mid 250-2000, high 2000-Nyquist (Hz) |
+| Default input on stdin | JSONL `{t, value}` | raw PCM, 16-bit little-endian, mono |
+
+`SENSOR_SAMPLE_RATE` must always equal the real sample rate of your source, because the engine derives time and frequencies from it. `SENSOR_INPUT` (`jsonl` or `pcm_s16le`) overrides the stdin format; a serial interface (`SERIAL_INTERFACE`) overrides it too.
+
+To see what a profile resolves to, with warnings for settings that cannot work (for example a frequency band above the Nyquist frequency):
+
+```
+SENSOR_PROFILE=audio edge-filter --explain
+```
+
+### Sound from a microphone
+
+```
+# in edge/.env: SENSOR_PROFILE=audio  (leave SENSOR_SAMPLE_RATE unset or 16000)
+arecord -q -f S16_LE -r 16000 -c 1 -t raw | ./edge/edge-filter --broker localhost:1883 --sensor-id mic
+```
+
+Any tool that produces raw PCM works, for example `ffmpeg -i recording.wav -f s16le -ac 1 -ar 16000 - | edge-filter`. The Docker image has no sound device; run the binary on the host. Start it while the sound is in its normal state: the first 10 seconds are learned as normal.
+
+### Testing with a speaker
+
+The simulator can produce a sound with a known fault: a 120 Hz hum with noise and a 2.5 kHz tone that fades in halfway through.
+
+```
+# replay without any audio hardware
+python3 firmware-sim/signal_generator.py --profile audio --seed 1 batch --samples 960000 --anomaly > sound.pcm
+SENSOR_PROFILE=audio ./edge/edge-filter --no-mqtt < sound.pcm
+
+# or play it through a speaker and let a microphone capture it
+python3 firmware-sim/signal_generator.py --profile audio batch --samples 960000 --anomaly --format wav --file test.wav
+aplay test.wav            # in one terminal, while the line from the previous section runs in another
+```
+
+The file is 60 s long; the tone starts at 30 s, after the 10 s learning period. Real rooms add their own noise and echo, so expect the onset to be less crisp than in a replay.
+
+### What to expect from the audio profile
+
+- It is a first approximation, calibrated on the simulator's synthetic sound, not on real recordings. Treat the numbers as a starting point.
+- A new tone about 60% as strong as the existing background (by RMS) is reported within about a second; a tone as strong as the background within about half a second. Quieter additions are not reported, by design: the thresholds favour few false alarms.
+- The baseline follows slow changes with a time constant of about 30 s, so a sound that grows slower than that is absorbed into "normal" instead of reported.
+- Steady ambient sound produced about one warning per two minutes in the synthetic tests.
+
 ## Data retention
 
 | Table                  | Contents                                   | Kept |

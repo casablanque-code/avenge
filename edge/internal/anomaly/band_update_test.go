@@ -65,3 +65,29 @@ func TestBandsReturnsIndependentCopy(t *testing.T) {
 		t.Fatal("a Bands copy changed after later windows were processed")
 	}
 }
+
+// Alpha 0 must keep the historic 0.1, so existing configurations behave
+// exactly as before the factor became configurable.
+func TestDetectorAlphaZeroMeansHistoricDefault(t *testing.T) {
+	mk := func(alpha float64) *Detector {
+		c := DefaultConfig()
+		c.Alpha = alpha
+		return NewDetector(c)
+	}
+	a, b := mk(0), mk(0.1)
+	r := rand.New(rand.NewSource(5))
+	for w := 0; w < 200; w++ {
+		samples := make([]float64, 256)
+		level := 1.0
+		if w >= 100 && w < 130 {
+			level = 3
+		}
+		for i := range samples {
+			samples[i] = level * (0.5 + 0.05*r.NormFloat64())
+		}
+		ea, eb := a.IngestWindow(samples, float64(w)), b.IngestWindow(samples, float64(w))
+		if (ea == nil) != (eb == nil) || a.LastZScore() != b.LastZScore() {
+			t.Fatalf("window %d: Alpha 0 and 0.1 diverged", w)
+		}
+	}
+}

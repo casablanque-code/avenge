@@ -110,7 +110,7 @@ The edge engine processes incoming data in a streaming pipeline:
    Ensures consistent scaling across windows.
 
 5. **Compression (SDT)**
-   The window RMS trend is compressed with Swinging Door Trending: only turning points that leave the deadband are kept and published.
+   The buffered samples are compressed with Swinging Door Trending (only turning points that leave the deadband are kept) to measure how compressible the signal is. The compression ratio is published with the telemetry; the compressed points themselves are not transmitted.
 
 ---
 
@@ -177,15 +177,19 @@ Beyond global RMS, A.V.E.N.G.E supports band-based detection:
 
 * Signal spectrum is divided into frequency bands
 * Each band maintains its own baseline
-* Weighted scoring highlights critical frequency ranges
+* The strongest band z-score is combined with the RMS z-score (the larger one decides), so a band-specific change is not hidden by a calm overall RMS
 
 The default bands for a 1 kHz-class sensor are `shaft` (0-50 Hz), `harmonic` (50-150 Hz), `fault` (150-400 Hz) and `hf_noise` (400 Hz to Nyquist).
 
-This allows detection of:
+The default bands are tuned for rotating machinery. For other kinds of signal a profile (`SENSOR_PROFILE`) supplies its own bands, window and thresholds; the `audio` profile watches `low` (0-250 Hz), `mid` (250-2000 Hz) and `high` (2000 Hz to Nyquist). See [OPERATIONS.md](OPERATIONS.md#signal-profiles).
+
+Changes in these bands are typical symptoms of:
 
 * Bearing defects
 * Imbalance
 * Misalignment
+
+A detector transition is a symptom, not a diagnosis of a specific fault.
 
 ---
 

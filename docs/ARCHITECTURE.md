@@ -63,11 +63,12 @@ Inside the `edge-filter` process (`edge/`). One worker goroutine per sensor proc
 
 ```mermaid
 flowchart TB
-    src["Sample source<br/>SerialReader on Linux, or stdin JSONL reader"]
+    src["Sample source<br/>SerialReader (Linux), stdin JSONL reader<br/>or stdin PCM reader"]
     broker["Mosquitto"]
 
     subgraph proc["edge-filter process"]
         envf["envfile<br/>loads .env"]
+        prof["profile<br/>SENSOR_PROFILE resolves window, bands,<br/>thresholds and time constants"]
         main["main<br/>wiring, signals, shutdown"]
         mgr["sensor.Manager<br/>one worker per sensor"]
 
@@ -77,7 +78,7 @@ flowchart TB
             band["anomaly.BandDetector<br/>z-score per frequency band"]
             rms["anomaly.Detector<br/>RMS z-score with hysteresis"]
             score["scoring.Combine<br/>max of both z-scores"]
-            sdt["filter.SDT<br/>compresses buffered samples"]
+            sdt["filter.SDT<br/>compression ratio of buffered samples"]
             out["WorkerEvent<br/>telemetry flush or anomaly transition"]
         end
 
@@ -87,7 +88,8 @@ flowchart TB
     end
 
     src -->|"samples"| main
-    envf -.->|"configuration"| main
+    envf -.->|"environment"| prof
+    prof -.->|"SensorConfig"| main
     main -->|"Send (live) or SendBlocking (replay)"| mgr
     mgr --> ring
     ring --> fftp
@@ -241,7 +243,7 @@ sequenceDiagram
         E->>R: sm/anomaly/id with event_type onset or clear
     end
     opt every 20th window
-        E->>E: SDT-compress the buffered samples
+        E->>E: compute the SDT compression ratio of the buffered samples
         E->>R: sm/telemetry/id with severity, final_score, dominant_signal
     end
     R->>B: PUBLISH, QoS 1, user edge
@@ -288,6 +290,7 @@ sequenceDiagram
 
 - **Anomaly events come from the RMS detector only.** A message on `sm/anomaly/...` is published when the RMS detector changes state, and its `event_type` is `onset` only while that detector reports an anomaly; every other transition, including a first warning, is labelled `clear`. The combined severity (RMS and frequency bands) travels in the telemetry messages, so a fault visible only in a frequency band shows up in telemetry but may produce no anomaly event.
 - **Outage buffer.** With the default cadence the queue of 512 messages holds roughly `512 × 20 × 512 / sample_rate` seconds of telemetry: about 87 minutes at 1 kHz and 55 minutes at 1.6 kHz. This is derived from the code, not measured.
+- **SDT is a measurement, not a payload.** The engine compresses the buffered samples to report the compression ratio (`sdt_ratio`); the compressed points are not transmitted. One telemetry message summarizes a whole flush interval.
 - **Allocations.** After initialization the per-window path (ring buffer, FFT, both detectors, scoring) does not allocate; tests enforce this. A window that emits an event allocates the event and a copy of the band states (a few small objects), because they are handed to another goroutine. This is a measured property of the code on amd64 with Go 1.22; the Raspberry Pi has not been measured.
 - **Timestamps from the serial port are synthesized.** The firmware sends no timestamps; the reader derives them from a counter and `SENSOR_SAMPLE_RATE`, so that value must match the firmware's real rate.
 - **No transport encryption.** MQTT is plaintext, authenticated and ACL-restricted; run it on a trusted network.

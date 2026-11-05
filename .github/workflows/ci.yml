@@ -84,8 +84,8 @@ jobs:
           set -o pipefail
           go test -race -count=1 -coverprofile=coverage.out ./internal/... | tee test.log
 
-      - name: Allocation guards (without the race detector)
-        run: go test -count=1 -run 'AllocFree|AllocsBounded' ./internal/...
+      - name: Allocation and behaviour guards (without the race detector)
+        run: go test -count=1 -run 'AllocFree|AllocsBounded|AudioProfile' ./internal/...
 
       - name: Coverage gate
         run: |
@@ -152,6 +152,9 @@ jobs:
       - name: actionlint
         run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 -color
 
+      - name: Simulator compiles
+        run: python3 -m py_compile firmware-sim/signal_generator.py
+
       - name: Grafana dashboards are valid JSON
         run: |
           for f in core/grafana/provisioning/dashboards/*.json; do
@@ -196,6 +199,18 @@ jobs:
             < "$RUNNER_TEMP/in.jsonl" 2>&1 | tee "$RUNNER_TEMP/out.txt"
           grep -Eq 'Total samples *: *20000' "$RUNNER_TEMP/out.txt"
           ! grep -q 'DROP' "$RUNNER_TEMP/out.txt"
+
+      - name: Smoke test (audio profile, a seeded sound with a tone)
+        run: |
+          python3 firmware-sim/signal_generator.py --profile audio --seed 11 batch --samples 960000 --anomaly > "$RUNNER_TEMP/sound.pcm"
+          docker run --rm -i -e SENSOR_PROFILE=audio avenge-edge:ci --no-mqtt --sensor-id ci-audio \
+            < "$RUNNER_TEMP/sound.pcm" 2>&1 | tee "$RUNNER_TEMP/out-audio.txt"
+          grep -Eq 'Total samples *: *960000' "$RUNNER_TEMP/out-audio.txt"
+          grep -q 'ANOMALY' "$RUNNER_TEMP/out-audio.txt"
+          ! grep -q 'DROP' "$RUNNER_TEMP/out-audio.txt"
+
+      - name: --explain prints the resolved configuration
+        run: docker run --rm -e SENSOR_PROFILE=audio avenge-edge:ci --explain | grep -q 'audio'
 
   e2e:
     name: e2e (full core stack)

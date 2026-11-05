@@ -43,6 +43,7 @@ import (
 
 	"github.com/casablanque-code/smart-manufacturing/edge/internal/envfile"
 	mqttclient "github.com/casablanque-code/smart-manufacturing/edge/internal/mqtt"
+	"github.com/casablanque-code/smart-manufacturing/edge/internal/profile"
 	"github.com/casablanque-code/smart-manufacturing/edge/internal/sensor"
 )
 
@@ -59,6 +60,7 @@ func main() {
 	broker := flag.String("broker", defaultBroker(), "MQTT broker address")
 	sensorID := flag.String("sensor-id", envOr("SENSOR_ID", "bearing_01"), "Sensor identifier (default: $SENSOR_ID)")
 	noMQTT := flag.Bool("no-mqtt", false, "Disable MQTT output")
+	explain := flag.Bool("explain", false, "Print the resolved configuration (profile, windows, bands) and exit")
 	flag.Parse()
 
 	fmt.Fprintf(os.Stderr, "edge-filter  sensor=%s  broker=%s\n", *sensorID, *broker)
@@ -73,14 +75,36 @@ func main() {
 	// wired to DefaultSensorConfig's hardcoded 1000 Hz regardless of what
 	// SENSOR_SAMPLE_RATE actually said, which would desync every Sample.T
 	// from real elapsed time and shift every computed FFT frequency.
-	sensorCfg := sensor.DefaultSensorConfig(*sensorID)
+	//
+	// SENSOR_PROFILE (vibration, audio) picks every other tunable at once:
+	// FFT window, frequency bands, thresholds, time constants. Unset means
+	// "vibration", which equals the historic built-in defaults.
+	settings := profile.Settings{
+		Profile:  os.Getenv("SENSOR_PROFILE"),
+		SensorID: *sensorID,
+		Input:    os.Getenv("SENSOR_INPUT"),
+	}
 	if r := os.Getenv("SENSOR_SAMPLE_RATE"); r != "" {
 		if parsed, err := strconv.Atoi(r); err == nil && parsed > 0 {
-			sensorCfg.SampleRate = parsed
+			settings.SampleRate = parsed
 		} else {
-			fmt.Fprintf(os.Stderr, "warning: invalid SENSOR_SAMPLE_RATE=%q, using default %d Hz\n",
-				r, sensorCfg.SampleRate)
+			fmt.Fprintf(os.Stderr, "warning: invalid SENSOR_SAMPLE_RATE=%q, using the profile default\n", r)
 		}
+	}
+	resolved, err := profile.Resolve(settings)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "config: %v\n", err)
+		os.Exit(2)
+	}
+	if *explain {
+		fmt.Print(resolved.Explain())
+		return
+	}
+	sensorCfg := resolved.Sensor
+	fmt.Fprintf(os.Stderr, "profile: %s (%d Hz, window %d samples)\n",
+		resolved.Profile.Name, sensorCfg.SampleRate, sensorCfg.FFTWindow)
+	for _, w := range resolved.Warnings {
+		fmt.Fprintf(os.Stderr, "warning: %s\n", w)
 	}
 
 	// ── Sample source ──────────────────────────────────────────────────
@@ -118,9 +142,15 @@ func main() {
 		fmt.Fprintf(os.Stderr, "serial source: iface=%s port=%s baud=%d sampleRate=%dHz\n",
 			iface, port, baud, sensorCfg.SampleRate)
 	default:
-		src = sensor.NewReader(os.Stdin)
+		// SENSOR_INPUT (or the profile default) selects the stdin format.
+		if resolved.Input == profile.InputPCMS16LE {
+			src = sensor.NewPCMReader(os.Stdin, sensorCfg.SampleRate)
+			fmt.Fprintf(os.Stderr, "source: stdin (raw PCM s16le mono, %d Hz)\n", sensorCfg.SampleRate)
+		} else {
+			src = sensor.NewReader(os.Stdin)
+			fmt.Fprintln(os.Stderr, "serial source: stdin (JSONL)")
+		}
 		replay = true
-		fmt.Fprintln(os.Stderr, "serial source: stdin (JSONL)")
 	}
 
 	// ── Context: cancelled on SIGINT / SIGTERM ─────────────────────────

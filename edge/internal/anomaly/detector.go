@@ -21,6 +21,11 @@ type Config struct {
 	ExitThreshold float64
 
 	MinStdDev float64
+
+	// Alpha is the EMA smoothing factor of the baseline update, per window
+	// (0 < Alpha <= 1). Zero keeps the historic 0.1. A smaller value adapts
+	// more slowly, which makes a gradually growing fault easier to catch.
+	Alpha float64
 }
 
 // DefaultConfig returns production-ready defaults for 1 kHz MPU-6050.
@@ -130,7 +135,10 @@ func (d *Detector) IngestWindow(samples []float64, windowStartT float64) *Event 
 	// Freezing the baseline during a fault keeps z-scores meaningful
 	// and prevents the detector from silently normalising a degraded machine.
 	if !isAnomaly {
-		const alpha = 0.1 // slower EMA = less drift on gradual fault onset
+		alpha := d.cfg.Alpha // slower EMA = less drift on gradual fault onset
+		if alpha <= 0 {
+			alpha = 0.1
+		}
 
 		// Compute variance using the OLD mean before updating it.
 		// Using the already-updated mean here biases variance downward,
