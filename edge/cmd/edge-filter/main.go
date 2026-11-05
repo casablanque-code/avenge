@@ -193,9 +193,8 @@ func main() {
 
 	// ── Stats ──────────────────────────────────────────────────────────
 	var (
-		totalSamples   int64
-		totalWindows   int
-		anomalyWindows int
+		totalSamples int64
+		totalEvents  int
 	)
 
 	// ── Event consumer goroutine ───────────────────────────────────────
@@ -204,27 +203,25 @@ func main() {
 	go func() {
 		defer close(eventsDone)
 		for ev := range mgr.Events() {
-			totalWindows++
-			// Count anomalous windows via the combined scoring decision,
-			// not just state-transition Events — ev.Event is only non-nil
-			// on NORMAL↔ANOMALY transitions, so a 1000-window sustained
-			// anomaly was previously counted as "1 anomalous window" rather
-			// than 1000. ev.IsAnomaly is set on every WorkerEvent.
-			if ev.IsAnomaly {
-				anomalyWindows++
-			}
+			totalEvents++
 
 			// Console output.
-			printWorkerEvent(totalWindows, ev)
+			printWorkerEvent(ev)
 
 			if pub == nil {
 				continue
 			}
 
 			// Periodic telemetry flush → sm/telemetry/<id>
+			// The timestamp is the wall-clock time at which the window
+			// completed (taken in the worker), not the time of publishing.
+			ts := ev.WindowTime
+			if ts.IsZero() {
+				ts = time.Now()
+			}
 			if ev.IsTelemetryFlush {
 				if err := pub.PublishTelemetry(
-					time.Now().UnixMilli(),
+					ts.UnixMilli(),
 					ev.WindowRMS, // last window RMS as the point value
 					ev.WindowRMS,
 					ev.SDTRatio,
@@ -244,7 +241,7 @@ func main() {
 					eventType = "onset"
 				}
 				if err := pub.PublishAnomaly(
-					time.Now(),
+					ts,
 					eventType,
 					string(ev.Event.Severity),
 					float32(ev.Event.RMS),
@@ -257,6 +254,9 @@ func main() {
 			}
 		}
 	}()
+
+	// Compares the real arrival rate of samples with SENSOR_SAMPLE_RATE.
+	rateMon := sensor.NewRateMonitor(sensorCfg.SampleRate)
 
 	// ── Hot loop: read source → Manager ───────────────────────────────
 	for {
@@ -278,6 +278,11 @@ func main() {
 			mgr.Send(*sensorID, s)
 		}
 		totalSamples++
+		if totalSamples&255 == 0 {
+			if rep, ok := rateMon.Observe(time.Now(), totalSamples); ok {
+				printRateReport(rep)
+			}
+		}
 	}
 
 shutdown:
@@ -302,7 +307,8 @@ shutdown:
 			dropped, reconnects, lost)
 	}
 
-	printStats(totalSamples, totalWindows, anomalyWindows, sensorCfg.SampleRate)
+	stats, _ := mgr.Stats(*sensorID)
+	printStats(totalSamples, totalEvents, stats, sensorCfg.SampleRate)
 }
 
 // ── Console output ─────────────────────────────────────────────────────────
@@ -343,7 +349,7 @@ func defaultBroker() string {
 	return net.JoinHostPort(strings.Trim(host, "[]"), port)
 }
 
-func printWorkerEvent(n int, ev sensor.WorkerEvent) {
+func printWorkerEvent(ev sensor.WorkerEvent) {
 	severity := ev.Severity
 	if severity == "" {
 		severity = "normal"
@@ -362,8 +368,8 @@ func printWorkerEvent(n int, ev sensor.WorkerEvent) {
 		tag = fmt.Sprintf("  [flush sdt=%.1f×]", ev.SDTRatio)
 	}
 
-	fmt.Printf("win %4d  sensor=%-12s  [%s]  rms=%.4f  score=%+.1fσ(%s)%s",
-		n, ev.SensorID, status, ev.WindowRMS, ev.FinalScore, ev.DominantSignal, tag)
+	fmt.Printf("win %5d  sensor=%-12s  [%s]  rms=%.4f  score=%+.1fσ(%s)%s",
+		ev.Window, ev.SensorID, status, ev.WindowRMS, ev.FinalScore, ev.DominantSignal, tag)
 
 	if ev.Event != nil {
 		if ev.Event.Anomaly {
@@ -380,14 +386,28 @@ func printWorkerEvent(n int, ev sensor.WorkerEvent) {
 	fmt.Println()
 }
 
-func printStats(samples int64, windows, anomalyWins, sampleRate int) {
+func printStats(samples int64, events int, st sensor.WorkerStats, sampleRate int) {
 	sep := strings.Repeat("─", 54)
 	fmt.Println("\n" + sep)
 	fmt.Printf("  Total samples   : %d (%.1f s)\n", samples, float64(samples)/float64(sampleRate))
-	fmt.Printf("  Windows         : %d\n", windows)
-	if windows > 0 {
-		fmt.Printf("  Anomalous       : %d / %d (%.0f%%)\n",
-			anomalyWins, windows, 100*float64(anomalyWins)/float64(windows))
+	fmt.Printf("  Windows         : %d\n", st.Windows)
+	if st.Windows > 0 {
+		fmt.Printf("  Above warning   : %d / %d (%.1f%%)\n",
+			st.AboveWarning, st.Windows, 100*float64(st.AboveWarning)/float64(st.Windows))
 	}
+	fmt.Printf("  Events shown    : %d (periodic telemetry and state changes)\n", events)
 	fmt.Println(sep)
+}
+
+// printRateReport shows the result of the sample-rate check.
+func printRateReport(r sensor.RateReport) {
+	switch r.Kind {
+	case sensor.RateOK:
+		fmt.Fprintf(os.Stderr, "rate check: samples arrive at %.0f Hz, SENSOR_SAMPLE_RATE is %.0f - ok\n", r.Measured, r.Want)
+	case sensor.RateReplay:
+		fmt.Fprintln(os.Stderr, "rate check: input is much faster than real time (replay), skipped")
+	default:
+		fmt.Fprintf(os.Stderr, "warning: rate check: samples arrive at %.0f Hz but SENSOR_SAMPLE_RATE is %.0f; "+
+			"time and every frequency are wrong. Fix the capture rate or SENSOR_SAMPLE_RATE.\n", r.Measured, r.Want)
+	}
 }

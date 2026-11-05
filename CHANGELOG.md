@@ -15,6 +15,7 @@ Entries for 0.1.0 to 0.2.4 were reconstructed from the git history and the conte
 - Raw PCM input for sound: `SENSOR_INPUT=pcm_s16le` (the audio default) reads 16-bit little-endian mono PCM from stdin, for example `arecord -q -f S16_LE -r 16000 -c 1 -t raw | edge-filter`.
 - Simulator audio profile: `signal_generator.py --profile audio` (hum, drifting noise, a 2.5 kHz tone as the anomaly) with `--format pcm|wav|jsonl`, so a WAV file can be played through a speaker, and `--profile`, `--format` and `--seed` accepted after the sub-command.
 - `edge-filter --help` lists every flag and every `.env` setting with defaults and examples; a test fails when `edge/.env.example` and the help drift apart.
+- Sample-rate check: the engine measures how fast samples really arrive and prints `rate check: ... - ok` after about 12 seconds, or a warning when the rate differs from `SENSOR_SAMPLE_RATE` by more than 5% (wrong `arecord -r`, wrong firmware rate). Replays are recognised and skipped. See `docs/OPERATIONS.md`.
 - Tests: profile resolution and validation, the PCM reader, and behaviour of the audio profile on synthetic sound (no false onsets, no warning churn, a fading-in tone is detected); a CI smoke test replays sound through the edge image.
 
 - Allocation guards: tests that fail if the per-window path allocates again, a dedicated CI step that runs them without the race detector, and a `BenchmarkIngestWindowNoFlush` benchmark.
@@ -22,6 +23,8 @@ Entries for 0.1.0 to 0.2.4 were reconstructed from the git history and the conte
 
 ### Changed
 
+- Console `win N` is now the real window number of the event (it used to count printed events), and the end summary reports processed windows and windows above warning level; it used to count events as windows (9 "windows" for 60 s of sound). Output of a replayed signal therefore differs from the previous version in these two places only.
+- MQTT timestamps are taken when the window completes in the worker, not when the event is published.
 - **Breaking:** a serial interface (`SERIAL_INTERFACE`) now requires `SENSOR_SAMPLE_RATE` and exits with an error without it. `edge/.env.example` ships the line commented out and `edge/compose.yaml` no longer defaults it to 1600, so a copied example can no longer start with a guessed rate. Set `SENSOR_SAMPLE_RATE=1600` for the ADXL345 firmware.
 - For raw PCM input, a `SENSOR_SAMPLE_RATE` that differs from the profile default produces a warning, and `--explain` states the rate the capture command must use.
 - `--explain` no longer prints the start-up banner before the box.
@@ -32,6 +35,7 @@ Entries for 0.1.0 to 0.2.4 were reconstructed from the git history and the conte
 
 ### Fixed
 
+- README and `docs/OPERATIONS.md` did not mention that serial input needs `SENSOR_SAMPLE_RATE`; the old `edge/.env.example` pre-set 1600 Hz, which shifted all frequencies when it was used with the 1000 Hz simulator.
 - Documentation said telemetry carried SDT turning points; it carries only the compression ratio, the compressed points are not transmitted. The description of band scoring said "weighted", but the larger of the RMS and band z-scores decides; the claim that bands detect bearing defects, imbalance and misalignment now says they are symptoms, not diagnoses.
 
 ## [0.2.4] - 2026-11-02
