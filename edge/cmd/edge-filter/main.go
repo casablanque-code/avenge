@@ -29,16 +29,20 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"os/signal"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
+	"github.com/casablanque-code/smart-manufacturing/edge/internal/capture"
 	"github.com/casablanque-code/smart-manufacturing/edge/internal/envfile"
 	mqttclient "github.com/casablanque-code/smart-manufacturing/edge/internal/mqtt"
 	"github.com/casablanque-code/smart-manufacturing/edge/internal/profile"
@@ -60,7 +64,7 @@ func main() {
 	flag.Usage = func() { fmt.Fprint(os.Stderr, usageText()) }
 	flag.Parse()
 
-	if !*explain {
+	if !*explain && !*opts.listAudio {
 		fmt.Fprintf(os.Stderr, "edge-filter  sensor=%s  broker=%s\n", *sensorID, *broker)
 	}
 
@@ -90,16 +94,38 @@ func main() {
 			fmt.Fprintf(os.Stderr, "warning: invalid SENSOR_SAMPLE_RATE=%q, using the profile default\n", r)
 		}
 	}
+	if *opts.listAudio {
+		os.Exit(listAudio())
+	}
+	source := os.Getenv("SENSOR_SOURCE")
+	if err := applySource(&settings, source, os.Getenv("SERIAL_INTERFACE")); err != nil {
+		fmt.Fprintf(os.Stderr, "config: %v\n", err)
+		os.Exit(2)
+	}
 	resolved, err := profile.Resolve(settings)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "config: %v\n", err)
 		os.Exit(2)
 	}
+	sensorCfg := resolved.Sensor
+	// SENSOR_SOURCE=mic: the exact capture command is part of the
+	// configuration, so --explain shows it too.
+	var micName string
+	var micArgs []string
+	if source == "mic" {
+		micName, micArgs, err = capture.Command(runtime.GOOS, os.Getenv("AUDIO_DEVICE"), sensorCfg.SampleRate)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "config: %v\n", err)
+			os.Exit(2)
+		}
+	}
 	if *explain {
 		fmt.Print(resolved.Explain())
+		if micName != "" {
+			fmt.Printf("Microphone capture command:\n  %s\n", capture.Describe(micName, micArgs))
+		}
 		return
 	}
-	sensorCfg := resolved.Sensor
 	fmt.Fprintf(os.Stderr, "profile: %s (%d Hz, window %d samples)\n",
 		resolved.Profile.Name, sensorCfg.SampleRate, sensorCfg.FFTWindow)
 	for _, w := range resolved.Warnings {
@@ -115,6 +141,7 @@ func main() {
 	// USB and RS-485 use the same binary packet protocol and SerialReader —
 	// only the device path and baud rate differ.
 	var src sensor.SampleSource
+	var micProc *capture.Process
 	replay := false // true for stdin (JSONL) input: block instead of dropping
 	switch iface := os.Getenv("SERIAL_INTERFACE"); iface {
 	case "usb", "rs485":
@@ -146,7 +173,20 @@ func main() {
 			iface, port, baud, sensorCfg.SampleRate)
 	default:
 		// SENSOR_INPUT (or the profile default) selects the stdin format.
-		if resolved.Input == profile.InputPCMS16LE {
+		if source == "mic" {
+			proc, err := capture.Start(micName, micArgs)
+			if errors.Is(err, exec.ErrNotFound) {
+				fmt.Fprintf(os.Stderr, "capture: %s not found: %s\n", micName, capture.InstallHint(runtime.GOOS))
+				os.Exit(1)
+			} else if err != nil {
+				fmt.Fprintf(os.Stderr, "capture: %v\n", err)
+				os.Exit(1)
+			}
+			micProc = proc
+			defer proc.Kill()
+			src = sensor.NewPCMReader(proc.Out, sensorCfg.SampleRate)
+			fmt.Fprintf(os.Stderr, "source: microphone via %s\n", capture.Describe(micName, micArgs))
+		} else if resolved.Input == profile.InputPCMS16LE {
 			src = sensor.NewPCMReader(os.Stdin, sensorCfg.SampleRate)
 			fmt.Fprintf(os.Stderr, "source: stdin (raw PCM s16le mono, %d Hz)\n", sensorCfg.SampleRate)
 		} else {
@@ -311,6 +351,17 @@ shutdown:
 
 	stats, _ := mgr.Stats(*sensorID)
 	printStats(totalSamples, totalEvents, stats, sensorCfg.SampleRate)
+
+	// The microphone command ended on its own (we were not asked to stop):
+	// say why, and fail.
+	if micProc != nil && ctx.Err() == nil {
+		reason := "ended"
+		if err := micProc.Wait(); err != nil {
+			reason = "stopped: " + err.Error()
+		}
+		fmt.Fprintf(os.Stderr, "capture: %s %s. Check AUDIO_DEVICE (edge-filter --list-audio) and that no other program holds the microphone.\n", micName, reason)
+		os.Exit(1)
+	}
 }
 
 // ── Console output ─────────────────────────────────────────────────────────

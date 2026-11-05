@@ -151,12 +151,31 @@ SENSOR_PROFILE=audio edge-filter --explain
 
 ### Sound from a microphone
 
+Run the binary on the host (the Docker image has no sound device). Three steps:
+
 ```
-# in edge/.env: SENSOR_PROFILE=audio  (leave SENSOR_SAMPLE_RATE unset or 16000)
-arecord -q -f S16_LE -r 16000 -c 1 -t raw | ./edge/edge-filter --broker localhost:1883 --sensor-id mic
+# 1. install the capture tool once
+#    Linux: sudo apt install alsa-utils    macOS: brew install ffmpeg    Windows: winget install Gyan.FFmpeg
+# 2. in edge/.env
+SENSOR_SOURCE=mic          # implies SENSOR_PROFILE=audio
+# AUDIO_DEVICE=            # empty = default device; required on Windows
+# 3. check, then run
+./edge/edge-filter --list-audio      # microphones, to fill AUDIO_DEVICE
+./edge/edge-filter --explain         # ends with the exact capture command that will run
+./edge/edge-filter --broker localhost:1883 --sensor-id mic
 ```
 
-Any tool that produces raw PCM works, for example `ffmpeg -i recording.wav -f s16le -ac 1 -ar 16000 - | edge-filter`. The Docker image has no sound device; run the binary on the host. Start it while the sound is in its normal state: the first 10 seconds are learned as normal.
+The engine starts the capture command itself, at the profile's sample rate (16000 Hz), and stops it on exit. If the command ends or fails, the engine says so and exits with status 1. Linux uses `arecord` (`AUDIO_DEVICE` is an ALSA name such as `default` or `plughw:1,0`), macOS and Windows use `ffmpeg` (`AUDIO_DEVICE` is a number or name from `--list-audio`). Start the engine while the sound is in its normal state: the first 10 seconds are learned as normal.
+
+Any other raw PCM source works through a pipe, for example `ffmpeg -i recording.wav -f s16le -ac 1 -ar 16000 - | SENSOR_PROFILE=audio edge-filter`.
+
+#### Before you measure: switch the sound processing off
+
+Laptop microphones and many drivers apply automatic gain control (AGC), noise suppression, echo cancellation or "voice isolation". These change the level and the spectrum of the signal, so a constant sound looks different from minute to minute and the learned baseline means little. In short:
+
+- Use a plain input: turn off audio enhancements, noise suppression, AGC and voice isolation in the system sound settings for that microphone, and in the driver's own control panel if it has one.
+- On Linux avoid the PulseAudio/PipeWire echo-cancel or noise-suppression modules; `AUDIO_DEVICE=plughw:X,Y` (see `arecord -l`) goes around the sound server.
+- Check it: play a steady tone from a phone at a fixed distance. `rms` in the output should stay almost constant for a minute and should not creep up or down. If it does, something is still adjusting the level.
 
 ### Testing with a speaker
 

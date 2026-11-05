@@ -5,18 +5,20 @@ import "flag"
 // options holds the command-line flags. They are defined in one place so the
 // help text and its test can see exactly the flags the program has.
 type options struct {
-	broker   *string
-	sensorID *string
-	noMQTT   *bool
-	explain  *bool
+	broker    *string
+	sensorID  *string
+	noMQTT    *bool
+	explain   *bool
+	listAudio *bool
 }
 
 func defineFlags(fs *flag.FlagSet) options {
 	return options{
-		broker:   fs.String("broker", defaultBroker(), "MQTT broker address"),
-		sensorID: fs.String("sensor-id", envOr("SENSOR_ID", "bearing_01"), "Sensor identifier (default: $SENSOR_ID)"),
-		noMQTT:   fs.Bool("no-mqtt", false, "Disable MQTT output"),
-		explain:  fs.Bool("explain", false, "Print the resolved configuration (profile, windows, bands) and exit"),
+		broker:    fs.String("broker", defaultBroker(), "MQTT broker address"),
+		sensorID:  fs.String("sensor-id", envOr("SENSOR_ID", "bearing_01"), "Sensor identifier (default: $SENSOR_ID)"),
+		noMQTT:    fs.Bool("no-mqtt", false, "Disable MQTT output"),
+		explain:   fs.Bool("explain", false, "Print the resolved configuration (profile, windows, bands) and exit"),
+		listAudio: fs.Bool("list-audio", false, "List the audio input devices and exit"),
 	}
 }
 
@@ -28,8 +30,9 @@ Reads a signal (vibration or sound), detects anomalies, sends compact
 telemetry over MQTT.
 
 USAGE
-  edge-filter [flags]              run (input: stdin, or SERIAL_INTERFACE)
+  edge-filter [flags]              run (input: stdin, SERIAL_INTERFACE or SENSOR_SOURCE=mic)
   edge-filter --explain            show the resolved configuration, then exit
+  edge-filter --list-audio         list microphones (to fill AUDIO_DEVICE), then exit
   edge-filter --help               show this text
 
 FLAGS
@@ -39,6 +42,7 @@ FLAGS
   --no-mqtt           print to the console only, do not connect to a broker
   --explain           print the resolved configuration and exit; use it after
                       every change to the settings below
+  --list-audio        list the audio input devices and exit
   --help, -h          this text
 
 SETTINGS
@@ -55,6 +59,11 @@ SETTINGS
     SENSOR_INPUT        stdin format: jsonl | pcm_s16le (profile default)
 
   Where the samples come from (unset = stdin)
+    SENSOR_SOURCE       mic = record the microphone itself (implies the audio
+                        profile); needs arecord (Linux) or ffmpeg (macOS,
+                        Windows); not available in Docker
+    AUDIO_DEVICE        microphone for SENSOR_SOURCE=mic; empty = default
+                        device, required on Windows; see --list-audio
     SERIAL_INTERFACE    usb | rs485
     USB_PORT            device path for usb   (default /dev/ttyUSB0)
     RS485_PORT          device path for rs485 (default /dev/ttyUSB0)
@@ -70,9 +79,12 @@ EXAMPLES
   # synthetic vibration, no broker
   python3 firmware-sim/signal_generator.py batch --samples 8000 --anomaly | edge-filter --no-mqtt
 
-  # microphone (Linux), see docs/OPERATIONS.md for Windows and macOS
-  SENSOR_PROFILE=audio edge-filter --explain
-  arecord -q -f S16_LE -r 16000 -c 1 -t raw | SENSOR_PROFILE=audio edge-filter
+  # microphone (Linux, macOS, Windows): --explain shows the capture command
+  SENSOR_SOURCE=mic edge-filter --explain
+  SENSOR_SOURCE=mic edge-filter
+
+  # any other raw PCM source
+  ffmpeg -i recording.wav -f s16le -ac 1 -ar 16000 - | SENSOR_PROFILE=audio edge-filter
 
 DOCS
   docs/OPERATIONS.md  setup, profiles, sound, troubleshooting
