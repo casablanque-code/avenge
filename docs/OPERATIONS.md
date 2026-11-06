@@ -95,6 +95,8 @@ curl -sI http://grafana.localhost | head -1              # HTTP/1.1 302 Found
 ```
 edge-filter --help       # every flag and every setting, with defaults
 edge-filter --explain    # what the current settings resolve to, with warnings
+edge-filter --version    # version, commit and platform of this build
+edge-filter --report     # the same plus time and input, as markdown for an experiment record
 ```
 
 Settings live in `edge/.env`; an exported variable overrides the file and a flag overrides both. Run `--explain` after every change to them.
@@ -186,6 +188,31 @@ Laptop microphones and many drivers apply automatic gain control (AGC), noise su
 - Use a plain input: turn off audio enhancements, noise suppression, AGC and voice isolation in the system sound settings for that microphone, and in the driver's own control panel if it has one.
 - On Linux avoid the PulseAudio/PipeWire echo-cancel or noise-suppression modules; `AUDIO_DEVICE=plughw:X,Y` (see `arecord -l`) goes around the sound server.
 - Check it: play a steady tone from a phone at a fixed distance. `rms` in the output should stay almost constant for a minute and should not creep up or down. If it does, something is still adjusting the level.
+
+### Recording and replaying a run
+
+Experiments must be repeatable, so a run can be saved and played again with different settings or on another machine.
+
+```
+SENSOR_SOURCE=mic ./edge/edge-filter --no-mqtt --record room.pcm     # saves the raw sound while it runs
+SENSOR_PROFILE=audio ./edge/edge-filter --no-mqtt --input room.pcm   # replays it, as fast as it can be processed
+```
+
+`--record` is off unless you ask for it, writes to a **new** file (an existing file is never overwritten), creates it readable by you only, and says so in a box when it starts. The file is raw 16-bit mono PCM at the profile's rate, a little over 110 MB per hour at 16 kHz. It stays on the machine; the engine never sends it anywhere, and the MQTT messages are unchanged ([ADR-0007](adr/0007-no-raw-signal-leaves-the-edge.md)). Treat it as what it is: a recording of a room, possibly with speech in it. Do not commit recordings; keep them next to your notes and write down their SHA-256.
+
+A recording replayed with the same settings and the same build gives the same output. That is checked in the tests and on the synthetic sound in the repository.
+
+To listen to a recording: `ffmpeg -f s16le -ar 16000 -ac 1 -i room.pcm room.wav`.
+
+### Windows and macOS
+
+The microphone path is the same everywhere; serial sensors are Linux-only.
+
+- Build on the machine (`cd edge`, then `go build -o edge-filter.exe ./cmd/edge-filter` on Windows), or cross-compile with `GOOS=windows`.
+- Run from the repository root, so that `edge/.env` is found: `edge\edge-filter.exe --list-audio`.
+- Windows needs `ffmpeg` and an explicit `AUDIO_DEVICE` (the name from `--list-audio`, for example `Microphone (Realtek Audio)`).
+- **Do not push PCM through PowerShell**: its `|` and `<` treat the data as text and damage it. Use `SENSOR_SOURCE=mic` (the engine starts the capture itself) and `--input file.pcm` (the engine reads the file itself).
+- The engine does not need the core stack to be tested: run with `--no-mqtt` and `--record`, then replay the recording through the full stack on another machine.
 
 ### Testing with a speaker
 

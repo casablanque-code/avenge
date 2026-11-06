@@ -33,8 +33,11 @@ COPY . .
 # CGO_ENABLED=0: static binary, no libc dependency at runtime —
 # required since the final stage is distroless (no shared libs at all).
 # GOARCH is set by buildx automatically via --platform; do not hardcode it.
+# VERSION is stamped into the binary (edge-filter --version). The release
+# workflow passes the tag; a local build without it reports "dev".
+ARG VERSION=dev
 RUN CGO_ENABLED=0 go build \
-    -ldflags="-s -w" \
+    -ldflags="-s -w -X main.version=${VERSION}" \
     -o /out/edge-filter \
     ./cmd/edge-filter/
 

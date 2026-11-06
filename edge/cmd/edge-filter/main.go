@@ -32,6 +32,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -63,8 +64,12 @@ func main() {
 	broker, sensorID, noMQTT, explain := opts.broker, opts.sensorID, opts.noMQTT, opts.explain
 	flag.Usage = func() { fmt.Fprint(os.Stderr, usageText()) }
 	flag.Parse()
+	if *opts.version {
+		fmt.Println(versionLine())
+		return
+	}
 
-	if !*explain && !*opts.listAudio {
+	if !*explain && !*opts.listAudio && !*opts.report {
 		fmt.Fprintf(os.Stderr, "edge-filter  sensor=%s  broker=%s\n", *sensorID, *broker)
 	}
 
@@ -119,6 +124,15 @@ func main() {
 			os.Exit(2)
 		}
 	}
+	if err := checkInputFlags(*opts.input, *opts.record, source, os.Getenv("SERIAL_INTERFACE"), resolved.Input); err != nil {
+		fmt.Fprintf(os.Stderr, "config: %v\n", err)
+		os.Exit(2)
+	}
+	if *opts.report {
+		in := describeInput(source, os.Getenv("SERIAL_INTERFACE"), *opts.input, resolved.Input, capture.Describe(micName, micArgs))
+		fmt.Print(formatReport(time.Now(), in, *opts.record, resolved))
+		return
+	}
 	if *explain {
 		fmt.Print(resolved.Explain())
 		if micName != "" {
@@ -142,6 +156,37 @@ func main() {
 	// only the device path and baud rate differ.
 	var src sensor.SampleSource
 	var micProc *capture.Process
+	var rec *recorder
+	// stdin is os.Stdin, or the file named by --input.
+	var stdin io.Reader = os.Stdin
+	inputName := "stdin"
+	if *opts.input != "" {
+		f, err := os.Open(*opts.input)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "input: %v\n", err)
+			os.Exit(1)
+		}
+		defer f.Close()
+		stdin, inputName = f, "file "+*opts.input
+	}
+	// record wraps a raw PCM reader so that it is also saved, when asked.
+	record := func(in io.Reader) io.Reader {
+		if *opts.record == "" {
+			return in
+		}
+		r, rc, err := startRecording(*opts.record, in)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "record: %v\n", err)
+			os.Exit(1)
+		}
+		rec = rc
+		fmt.Fprint(os.Stderr, box(
+			"RECORDING raw sound to "+*opts.record,
+			fmt.Sprintf("16-bit mono, %d Hz. The file stays on this machine; nothing sends it anywhere.", sensorCfg.SampleRate),
+			"Replay it with: edge-filter --input "+*opts.record,
+		))
+		return r
+	}
 	replay := false // true for stdin (JSONL) input: block instead of dropping
 	switch iface := os.Getenv("SERIAL_INTERFACE"); iface {
 	case "usb", "rs485":
@@ -184,14 +229,14 @@ func main() {
 			}
 			micProc = proc
 			defer proc.Kill()
-			src = sensor.NewPCMReader(proc.Out, sensorCfg.SampleRate)
+			src = sensor.NewPCMReader(record(proc.Out), sensorCfg.SampleRate)
 			fmt.Fprintf(os.Stderr, "source: microphone via %s\n", capture.Describe(micName, micArgs))
 		} else if resolved.Input == profile.InputPCMS16LE {
-			src = sensor.NewPCMReader(os.Stdin, sensorCfg.SampleRate)
-			fmt.Fprintf(os.Stderr, "source: stdin (raw PCM s16le mono, %d Hz)\n", sensorCfg.SampleRate)
+			src = sensor.NewPCMReader(record(stdin), sensorCfg.SampleRate)
+			fmt.Fprintf(os.Stderr, "source: %s (raw PCM s16le mono, %d Hz)\n", inputName, sensorCfg.SampleRate)
 		} else {
-			src = sensor.NewReader(os.Stdin)
-			fmt.Fprintln(os.Stderr, "serial source: stdin (JSONL)")
+			src = sensor.NewReader(stdin)
+			fmt.Fprintf(os.Stderr, "source: %s (JSONL)\n", inputName)
 		}
 		replay = true
 	}
@@ -356,6 +401,14 @@ shutdown:
 		lastRate = &r
 	}
 	fmt.Print(formatStats(totalSamples, totalEvents, stats, sensorCfg.SampleRate, lastRate, time.Since(startedAt)))
+
+	if rec != nil {
+		n, err := rec.Close()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "record: closing %s: %v\n", *opts.record, err)
+		}
+		fmt.Fprintf(os.Stderr, "recording saved: %s (%d bytes, %.1f s of sound)\n", *opts.record, n, float64(n)/2/float64(sensorCfg.SampleRate))
+	}
 
 	// The microphone command ended on its own (we were not asked to stop):
 	// say why, and fail.

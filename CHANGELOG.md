@@ -8,6 +8,18 @@ Entries for 0.1.0 to 0.2.4 were reconstructed from the git history and the conte
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-06
+
+This release adds sound next to vibration, makes the engine honest about its own configuration, and starts the research record. It contains breaking changes: read the upgrade notes first.
+
+### Upgrade notes from 0.2.x
+
+1. **Serial input needs a sample rate.** With `SERIAL_INTERFACE` set, `SENSOR_SAMPLE_RATE` is now required and the engine refuses to start without it. Set the real rate of your sensor in Hz (the reference setup, an ADXL345, runs at 1600).
+2. **Check your `edge/.env`.** Older examples had `SENSOR_SAMPLE_RATE=1600` switched on. With the 1000 Hz simulator, or with sound, that value is wrong; the engine now says so in a box after about 12 seconds. Comment the line out unless your source really runs at 1600 Hz.
+3. **Upgrade the edge and the core together.** Anomaly messages carry two new fields, `dominant_signal` and `band`. Run `docker compose -f core/compose.yaml up -d` once: `clickhouse-init` adds the columns to `iot.anomaly_events` and recreates the parsing view; older rows keep empty values.
+4. **`onset` and `clear` mean something slightly different.** They now follow one combined anomaly state (the RMS detector or any frequency band), and telemetry `is_anomaly` is that same state. Severity changes inside an anomaly are no longer events.
+5. **Console output changed**: `win N` is a real window number and the summary at the end counts windows, not events.
+
 ### Added
 
 - Signal profiles: `SENSOR_PROFILE=vibration|audio` fills in the window length, frequency bands, thresholds, baseline time constant and telemetry cadence for the kind of signal, so nothing else needs tuning. `vibration` (the default) equals the previous built-in values exactly; the output on a replayed signal is byte-identical to the previous version. `audio` is a first approximation calibrated on synthetic sound.
@@ -16,6 +28,9 @@ Entries for 0.1.0 to 0.2.4 were reconstructed from the git history and the conte
 - Simulator audio profile: `signal_generator.py --profile audio` (hum, drifting noise, a 2.5 kHz tone as the anomaly) with `--format pcm|wav|jsonl`, so a WAV file can be played through a speaker, and `--profile`, `--format` and `--seed` accepted after the sub-command.
 - `edge-filter --help` lists every flag and every `.env` setting with defaults and examples; a test fails when `edge/.env.example` and the help drift apart.
 - `SENSOR_SOURCE=mic` records the microphone from `edge/.env` on Linux (`arecord`), macOS and Windows (`ffmpeg`), at the profile's sample rate, and implies the audio profile. `AUDIO_DEVICE` picks the device, `edge-filter --list-audio` lists them, and `--explain` shows the exact capture command. The engine stops the capture command on exit and reports it if it fails. The Linux path is tested end to end with a stand-in `arecord`; the macOS and Windows commands are tested only as command lines and still need a run on real hardware. See `docs/OPERATIONS.md`, including how to switch off AGC and noise suppression before measuring.
+- Reproducibility tools in `edge-filter`: `--version` (version, commit, platform), `--report` (a markdown block for an experiment record: build, platform, time, input, resolved configuration, nothing secret), `--input FILE` (read samples from a file, the portable replay on Windows too) and `--record FILE` (save the raw PCM input to a new file; off by default, local only, never overwrites; see the amendment to ADR-0007). A recorded run replays to identical output.
+- The Docker image and the release workflow stamp the release tag into the binary, so `edge-filter --version` inside the image reports it.
+- Documentation for Windows and macOS (building, running, PowerShell and binary data), a reproducibility section in `docs/experiments/README.md` (environment recipes for Linux and Windows) and a concrete protocol for E-004 (the laptop microphone test) with a proposed pass line.
 - Research documentation: `docs/RESEARCH.md` (hypotheses with an honest status, the evidence boundary), `docs/LAB-NOTES.md` (what went wrong and what it taught us), `docs/experiments/` (rules, template, E-001 to E-006; E-002 and E-003 have a first run), `docs/adr/` (nine decision records, written retrospectively), and `docs/README.md` (documentation map, repository layout, data schema).
 - `TestPayloadsCarryNoRawSignal`: the published messages must be flat, small, and limited to an allowlist of fields, so a waveform cannot reach a payload unnoticed.
 - Experiment harness `TestExperimentToneSweep` (skipped unless `AVENGE_EXPERIMENT=tone-sweep`); it prints the table recorded in `docs/experiments/E-002-tone-sweep.md`.
@@ -174,7 +189,8 @@ First tagged release of the proof of concept (development since 2026-05-28).
 
 - End-to-end pipeline from MQTT to ClickHouse and Grafana stabilized; EMA bias, hysteresis and severity levels in the detector; telemetry flush and statistics sample rate; the ClickHouse password reaches the Grafana datasource.
 
-[Unreleased]: https://github.com/casablanque-code/avenge/compare/v0.2.4...HEAD
+[Unreleased]: https://github.com/casablanque-code/avenge/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/casablanque-code/avenge/compare/v0.2.4...v0.3.0
 [0.2.4]: https://github.com/casablanque-code/avenge/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/casablanque-code/avenge/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/casablanque-code/avenge/compare/v0.2.1...v0.2.2
