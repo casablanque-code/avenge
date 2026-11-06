@@ -26,3 +26,14 @@ The test above, plus reading `internal/mqtt/publisher.go`: it is short on purpos
 ## Revisit when
 
 A deployment needs evidence recordings, with consent, a bounded size and an explicit switch that is off by default.
+
+## Amendment: `--record`
+
+Experiments need the exact input back, so that a result can be repeated with other settings or on another machine. `--record FILE` therefore saves the raw PCM the engine reads. It is the only way raw signal ever touches disk, and it is built to stay a deliberate act:
+
+- off unless the operator passes the flag; there is no setting in `.env` that turns it on;
+- writes a new file with permissions for the current user only, and refuses to overwrite one;
+- announces itself in a box at start and reports the file at the end;
+- never changes what is published: the payload test above still holds, and nothing reads the file except `--input`.
+
+The file is the operator's recording of their own room or machine. Whether it may be kept or shared is theirs to decide; recordings are not committed to this repository.

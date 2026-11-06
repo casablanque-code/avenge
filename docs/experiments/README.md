@@ -13,6 +13,27 @@ One file per experiment. A result without its setup is a rumour, so every file s
 
 Start from the [template](TEMPLATE.md).
 
+## Recording the environment
+
+Every experiment file starts from the output of the engine itself:
+
+```
+./edge/edge-filter --report        # paste the result into the experiment file
+```
+
+It gives the build (version, commit, whether the tree was modified), platform, time, input and the resolved configuration, and nothing secret. It cannot know the hardware, so add by hand the CPU and the microphone or sensor:
+
+| | Linux | Windows (PowerShell) |
+|---|---|---|
+| CPU | `lscpu \| grep 'Model name'` | `(Get-CimInstance Win32_Processor).Name` |
+| OS | `lsb_release -d` | `(Get-CimInstance Win32_OperatingSystem).Caption` |
+| Audio devices | `edge-filter --list-audio` | `edge-filter.exe --list-audio` |
+| Checksum of a recording | `sha256sum room.pcm` | `Get-FileHash room.pcm` |
+
+## Keeping the input
+
+Anything that depends on a recording: save it with `--record`, write its SHA-256 and its length in the experiment file, and keep the file outside the repository (it may contain private sound). A result that cannot be replayed from its recording is a result nobody can check, including us in six months. See [Recording and replaying a run](../OPERATIONS.md#recording-and-replaying-a-run).
+
 ## Index
 
 | ID | Question | Level | Status |

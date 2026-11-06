@@ -10,6 +10,10 @@ type options struct {
 	noMQTT    *bool
 	explain   *bool
 	listAudio *bool
+	version   *bool
+	report    *bool
+	input     *string
+	record    *string
 }
 
 func defineFlags(fs *flag.FlagSet) options {
@@ -19,6 +23,10 @@ func defineFlags(fs *flag.FlagSet) options {
 		noMQTT:    fs.Bool("no-mqtt", false, "Disable MQTT output"),
 		explain:   fs.Bool("explain", false, "Print the resolved configuration (profile, windows, bands) and exit"),
 		listAudio: fs.Bool("list-audio", false, "List the audio input devices and exit"),
+		version:   fs.Bool("version", false, "Print the version and build, then exit"),
+		report:    fs.Bool("report", false, "Print a run report to paste into an experiment record, then exit"),
+		input:     fs.String("input", "", "Read samples from this file instead of stdin"),
+		record:    fs.String("record", "", "Save the raw PCM input to this new file (off by default)"),
 	}
 }
 
@@ -33,6 +41,8 @@ USAGE
   edge-filter [flags]              run (input: stdin, SERIAL_INTERFACE or SENSOR_SOURCE=mic)
   edge-filter --explain            show the resolved configuration, then exit
   edge-filter --list-audio         list microphones (to fill AUDIO_DEVICE), then exit
+  edge-filter --report             print a run report for an experiment record, then exit
+  edge-filter --version            print the version and build, then exit
   edge-filter --help               show this text
 
 FLAGS
@@ -43,6 +53,15 @@ FLAGS
   --explain           print the resolved configuration and exit; use it after
                       every change to the settings below
   --list-audio        list the audio input devices and exit
+  --report            print what would run (build, platform, input, resolved
+                      configuration) as markdown for an experiment record
+  --version           print the version, commit and platform, then exit
+  --input FILE        read samples from FILE instead of stdin (same format as
+                      stdin: raw PCM for the audio profile, else JSONL); the
+                      portable way to replay a recording on Windows too
+  --record FILE       save the raw PCM input to a NEW file for replay and
+                      re-analysis; off by default, local only, never sent
+                      anywhere, never overwrites a file
   --help, -h          this text
 
 SETTINGS
@@ -82,6 +101,10 @@ EXAMPLES
   # microphone (Linux, macOS, Windows): --explain shows the capture command
   SENSOR_SOURCE=mic edge-filter --explain
   SENSOR_SOURCE=mic edge-filter
+
+  # keep the raw sound of a run, then replay it later with other settings
+  SENSOR_SOURCE=mic edge-filter --record room.pcm
+  SENSOR_PROFILE=audio edge-filter --no-mqtt --input room.pcm
 
   # any other raw PCM source
   ffmpeg -i recording.wav -f s16le -ac 1 -ar 16000 - | SENSOR_PROFILE=audio edge-filter
