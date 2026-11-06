@@ -69,9 +69,9 @@ func main() {
 	}
 
 	// ── Sensor configuration ─────────────────────────────────────────────
-	// SENSOR_SAMPLE_RATE must match the firmware's actual output data rate
-	// exactly (see edge/firmware/adxl345_esp32/adxl345_esp32.ino — ADXL345
-	// is hardware-capped at 3200 Hz, this project runs it at 1600 Hz).
+	// SENSOR_SAMPLE_RATE must match the sensor's actual output data rate
+	// exactly (the reference setup runs an ADXL345, which is hardware-capped
+	// at 3200 Hz, at 1600 Hz; this repository contains no sensor firmware).
 	// This single value feeds both the FFT/anomaly pipeline (via
 	// sensorCfg.SampleRate) and SerialReader's timestamp reconstruction —
 	// previously these could silently diverge because SerialReader was

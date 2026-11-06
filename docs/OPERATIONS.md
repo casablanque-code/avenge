@@ -72,8 +72,8 @@ Rules: letters and digits only. Never commit `.env`.
 | ------------------------------------------------------- | ----------------------------------------------- | --- |
 | `required variable ... is missing a value`              | `core/.env` missing or incomplete               | `cp core/.env.example core/.env`, fill in every password. |
 | `preflight` prints `ERROR: ... placeholder` or `... only letters and digits` | Placeholder or unsupported character in a password | Fix the named variable in `core/.env`, run `up -d`. |
-| Edge exits: `SENSOR_SAMPLE_RATE is required for SERIAL_INTERFACE` | Serial input without a sample rate | Set the real rate of the sensor in Hz in `edge/.env` (ADXL345 firmware: 1600), `up -d`. |
-| Edge prints `warning: rate check: samples arrive at ... Hz` | The source runs at another rate than `SENSOR_SAMPLE_RATE` | Make the capture command or the firmware use the configured rate, or set `SENSOR_SAMPLE_RATE` to the measured one. |
+| Edge exits: `SENSOR_SAMPLE_RATE is required for SERIAL_INTERFACE` | Serial input without a sample rate | Set the real rate of the sensor in Hz in `edge/.env` (the reference setup, an ADXL345, runs at 1600), `up -d`. |
+| Edge prints `warning: rate check: samples arrive at ... Hz` | The source runs at another rate than `SENSOR_SAMPLE_RATE` | Make the capture command or the sensor use the configured rate, or set `SENSOR_SAMPLE_RATE` to the measured one. |
 | Telegraf log: `not authorised`                          | `.env` edited but containers not recreated      | `docker compose -f core/compose.yaml up -d`. |
 | Edge log: `CONNACK: ... not authorized`                 | `MQTT_PASSWORD` differs from `MQTT_EDGE_PASSWORD` | Align the two, `up -d` on the device. |
 | Telegraf log: `Not enough privileges`                   | Schema from an older version                    | `docker compose -f core/compose.yaml run --rm clickhouse-init`, then `up -d`. |
@@ -116,7 +116,7 @@ rate check: samples arrive at 1002 Hz, SENSOR_SAMPLE_RATE is 1000 - ok
 
 The first 2 seconds are ignored (pipes deliver a start-up burst), a deviation above 5% is a mismatch, and a mismatch is repeated every minute. Input much faster than real time (a file or a generator) is recognised as a replay and skipped. The summary at the end of the run repeats the outcome (`Rate check : ok (...)`, `MISMATCH (...)`, `replay`, or `not measured` for runs shorter than about 12 seconds) and shows `Real time` next to the sample count, so a wrong rate is visible there as well. Do not ignore a mismatch: all frequencies, band names and detection delays of that run depend on the rate.
 
-Which rate to expect: the simulator (`firmware-sim/signal_generator.py`) and the vibration profile default to 1000 Hz, the ADXL345 firmware runs at 1600 Hz, sound is captured at 16000 Hz. For the hardware set `SENSOR_SAMPLE_RATE=1600`; for the simulator at 1600 start it with `--rate 1600`.
+Which rate to expect: the simulator (`firmware-sim/signal_generator.py`) and the vibration profile default to 1000 Hz, the reference sensor (an ADXL345) runs at 1600 Hz, sound is captured at 16000 Hz. For the hardware set `SENSOR_SAMPLE_RATE=1600`; for the simulator at 1600 start it with `--rate 1600`.
 
 **Upgrading:** older versions of `edge/.env.example` had `SENSOR_SAMPLE_RATE=1600` switched on. An `edge/.env` copied from them keeps that line, and with the 1000 Hz simulator, or with sound, it now produces the mismatch box. Check the line in your own `edge/.env`: comment it out, or set the real rate of your source.
 

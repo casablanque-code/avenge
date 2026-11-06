@@ -38,7 +38,7 @@ fi
 echo "== paths and links mentioned in the docs exist"
 # Generated or local-only paths that legitimately do not exist in a clean checkout.
 ignored='^(core/\.env|edge/\.env|edge/edge-filter)$'
-docs=(README.md docs/*.md)
+docs=(README.md docs/*.md docs/*/*.md)
 for doc in "${docs[@]}"; do
   base="$(dirname "$doc")"
   # Inline repo paths such as core/compose.yaml or tests/e2e/run.sh
