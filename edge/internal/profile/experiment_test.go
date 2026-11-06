@@ -10,6 +10,7 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/casablanque-code/smart-manufacturing/edge/internal/anomaly"
 	"github.com/casablanque-code/smart-manufacturing/edge/internal/profile"
 	"github.com/casablanque-code/smart-manufacturing/edge/internal/sensor"
 )
@@ -111,5 +112,117 @@ func TestExperimentToneSweep(t *testing.T) {
 			fmt.Printf("%-26s %7.3f %8.1f%% %6d/%d %12s %7d\n",
 				bg.name, amp, 100*riseSum/float64(len(seeds)), detected, len(seeds), med, falseOnsets)
 		}
+	}
+}
+
+// ---- E-007: a crude living room (docs/experiments/E-007-living-room-model.md) ----
+
+// tvModel is a crude TV/speech sound: low-passed noise (one pole, about
+// 3 kHz), a 4 Hz syllable-like amplitude modulation, and a slowly wandering
+// level. It is a model of "non-stationary background", not of any real TV.
+type tvModel struct {
+	rng       *rand.Rand
+	lp, level float64
+}
+
+func (s *tvModel) next(t, gain float64) float64 {
+	s.lp = 0.55*s.lp + 0.45*s.rng.NormFloat64()
+	if int(math.Round(t*16000))%1600 == 0 { // every 0.1 s the level wanders
+		s.level = math.Max(0.6, math.Min(1.4, s.level+0.04*s.rng.NormFloat64()))
+	}
+	env := 0.6 + 0.4*math.Abs(math.Sin(2*math.Pi*4*t))
+	return gain * s.level * env * s.lp
+}
+
+type roomRun struct {
+	events []anomaly.Event
+	stats  sensor.WorkerStats
+}
+
+func playRoom(seed int64, seconds float64, gen func(rng *rand.Rand, ts float64, tv *tvModel) float64) roomRun {
+	res, _ := profile.Resolve(profile.Settings{Profile: "audio", SensorID: "mic"})
+	mgr := sensor.NewManager(1 << 16)
+	mgr.Add(res.Sensor)
+	done := make(chan []anomaly.Event)
+	go func() {
+		var out []anomaly.Event
+		for ev := range mgr.Events() {
+			if ev.Event != nil {
+				out = append(out, *ev.Event)
+			}
+		}
+		done <- out
+	}()
+	rng := rand.New(rand.NewSource(seed))
+	tv := &tvModel{rng: rand.New(rand.NewSource(seed + 100)), level: 1}
+	rate := float64(res.Sensor.SampleRate)
+	for i := 0; i < int(seconds*rate); i++ {
+		ts := float64(i) / rate
+		mgr.SendBlocking("mic", sensor.Sample{T: ts, Value: gen(rng, ts, tv)})
+	}
+	mgr.Stop()
+	st, _ := mgr.Stats("mic")
+	return roomRun{<-done, st}
+}
+
+func countOnsets(r roomRun) (n int) {
+	for _, e := range r.events {
+		if e.Anomaly {
+			n++
+		}
+	}
+	return
+}
+
+// AVENGE_EXPERIMENT=living-room go test -run TestExperimentLivingRoom -v ./internal/profile
+func TestExperimentLivingRoom(t *testing.T) {
+	if os.Getenv("AVENGE_EXPERIMENT") != "living-room" {
+		t.Skip("experiment harness; set AVENGE_EXPERIMENT=living-room to run")
+	}
+	fmt.Println("A: quiet baseline, TV on from 30 s and left on, 330 s total")
+	for seed := int64(1); seed <= 3; seed++ {
+		r := playRoom(seed, 330, func(rng *rand.Rand, ts float64, s *tvModel) float64 {
+			v := quietRoom(rng, ts)
+			if ts >= 30 {
+				v += s.next(ts, 0.02)
+			}
+			return v
+		})
+		fmt.Printf("  seed %d: in anomaly %d/%d windows  ", seed, r.stats.InAnomaly, r.stats.Windows)
+		for _, e := range r.events {
+			k := "clear"
+			if e.Anomaly {
+				k = "ONSET"
+			}
+			fmt.Printf("[%s@%.0fs %s %s] ", k, e.T, e.Signal, e.Band)
+		}
+		fmt.Println()
+	}
+	fmt.Println("B: TV on during baseline; 3 s louder burst (speech, x2) every 25-45 s, 600 s")
+	for seed := int64(1); seed <= 3; seed++ {
+		br := rand.New(rand.NewSource(seed + 500))
+		next, until, bursts := 40.0, 0.0, 0
+		r := playRoom(seed, 600, func(rng *rand.Rand, ts float64, s *tvModel) float64 {
+			if ts >= next && until == 0 {
+				until = ts + 3
+				bursts++
+			}
+			g := 0.02
+			if until > 0 {
+				g = 0.04
+				if ts >= until {
+					until, next, g = 0, ts+25+20*br.Float64(), 0.02
+				}
+			}
+			return quietRoom(rng, ts)*0.3 + s.next(ts, g)
+		})
+		fmt.Printf("  seed %d: bursts=%d onsets=%d  in anomaly %d/%d windows\n", seed, bursts, countOnsets(r), r.stats.InAnomaly, r.stats.Windows)
+	}
+	fmt.Println("C: TV on during baseline, nothing else, 600 s")
+	for seed := int64(1); seed <= 3; seed++ {
+		r := playRoom(seed, 600, func(rng *rand.Rand, ts float64, s *tvModel) float64 {
+			return quietRoom(rng, ts)*0.3 + s.next(ts, 0.02)
+		})
+		fmt.Printf("  seed %d: onsets=%d  in anomaly %d/%d windows\n", seed, countOnsets(r), r.stats.InAnomaly, r.stats.Windows)
 	}
 }

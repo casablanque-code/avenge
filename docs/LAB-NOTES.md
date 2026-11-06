@@ -77,5 +77,6 @@ Listed here so nobody mistakes silence for success.
 - **No real microphone yet.** The laptop test ([E-004](experiments/E-004-laptop-microphone.md)) is next. Expect surprises.
 - **macOS and Windows capture** are tested as command lines only, never on those systems.
 - **No reference firmware.** A comment in the serial reader used to point at firmware source that is not in this repository, and we do not have it. The protocol is defined by the reader code. A reference firmware is something to write and to test on a real board.
+- **No way to declare a new normal.** The baseline is frozen while the engine is in anomaly, so a lasting change (a fan, a TV) keeps it there until restart. Found in a simulation before any real room ([E-007](experiments/E-007-living-room-model.md)); what to do about it is not decided.
 - **No Raspberry Pi numbers.** Nothing about the Pi is claimed until it is measured on one.
 - **Broker outages** are designed for and not yet measured ([E-005](experiments/E-005-broker-outage.md)).
