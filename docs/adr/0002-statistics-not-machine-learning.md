@@ -18,7 +18,7 @@ Option 3. Thresholds are in units of standard deviations, so they carry over bet
 
 ## Trade-offs
 
-It detects "different from what was learned", not "which fault". It is sensitive to what the machine was doing during start-up. A slow drift is absorbed, which is a feature until the failure itself is the slow drift.
+It detects "different from what was learned", not "which fault". It is sensitive to what the machine was doing during start-up. A slow drift is absorbed, which is a feature until the failure itself is the slow drift. While the engine is in anomaly the baseline is frozen, so a lasting change that is meant to be the new normal is never accepted: the engine stays in anomaly until it is restarted ([E-007](../experiments/E-007-living-room-model.md)).
 
 ## How to test it
 
@@ -26,4 +26,4 @@ It detects "different from what was learned", not "which fault". It is sensitive
 
 ## Revisit when
 
-We have labelled real faults in quantity, and a baseline comparison that beats this one on them.
+We have labelled real faults in quantity and a baseline comparison that beats this one on them, **or** a way to declare a new normal (an explicit re-learn command, or a re-learn after a long sustained anomaly) is decided and tested: a separate record.

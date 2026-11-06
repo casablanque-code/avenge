@@ -8,6 +8,15 @@ Entries for 0.1.0 to 0.2.4 were reconstructed from the git history and the conte
 
 ## [Unreleased]
 
+### Added
+
+- `docs/experiments/E-007-living-room-model.md` with its harness (`TestExperimentLivingRoom`, skipped unless `AVENGE_EXPERIMENT=living-room`): a lasting change in the sound is never absorbed by the engine, loud bursts on a TV-like background are reported nearly one for one, a constant TV-like background gives a few false onsets.
+- The plan of E-004 is now staged (Linux first), has a versioned pass line, registered predictions and a step-by-step protocol; README of the experiments gained E-007.
+
+### Changed
+
+- Documentation states what the tool is for (steady machine sounds), that it does not relearn while in anomaly, and that nothing beyond the first 10 seconds calibrates it.
+
 ## [0.3.0] - 2026-11-06
 
 This release adds sound next to vibration, makes the engine honest about its own configuration, and starts the research record. It contains breaking changes: read the upgrade notes first.

@@ -177,7 +177,7 @@ SENSOR_SOURCE=mic          # implies SENSOR_PROFILE=audio
 ./edge/edge-filter --broker localhost:1883 --sensor-id mic
 ```
 
-The engine starts the capture command itself, at the profile's sample rate (16000 Hz), and stops it on exit. If the command ends or fails, the engine says so and exits with status 1. Linux uses `arecord` (`AUDIO_DEVICE` is an ALSA name such as `default` or `plughw:1,0`), macOS and Windows use `ffmpeg` (`AUDIO_DEVICE` is a number or name from `--list-audio`). Start the engine while the sound is in its normal state: the first 10 seconds are learned as normal.
+The engine starts the capture command itself, at the profile's sample rate (16000 Hz), and stops it on exit. If the command ends or fails, the engine says so and exits with status 1. Linux uses `arecord` (`AUDIO_DEVICE` is an ALSA name such as `default` or `plughw:1,0`), macOS and Windows use `ffmpeg` (`AUDIO_DEVICE` is a number or name from `--list-audio`). Start the engine while the sound is in its normal state: the first 10 seconds are learned as normal, and there is no calibration step beyond that. If the normal state changes for good (a fan is switched on and stays on), the engine reports an anomaly until it is restarted; it does not relearn while it is in anomaly. It watches loudness and three frequency bands, so it suits steady machine sounds; speech and television will be reported as changes.
 
 Any other raw PCM source works through a pipe, for example `ffmpeg -i recording.wav -f s16le -ac 1 -ar 16000 - | SENSOR_PROFILE=audio edge-filter`.
 

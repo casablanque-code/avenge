@@ -31,6 +31,7 @@ Statuses are deliberately blunt. **Supported** means a recorded test passed on t
 | H5 | The message schema is enough to review an incident afterwards | **Partly.** An anomaly event names its source and band and reaches the database. Tracing an injected event to a dashboard row on real input is not done. | `tests/e2e/run.sh`, [E-004](experiments/E-004-laptop-microphone.md) (planned) |
 | H6 | The audio profile works on a real room, not only on generated sound | **Not tested.** Only synthetic sound so far. The laptop microphone is next. | [E-004](experiments/E-004-laptop-microphone.md) (planned) |
 | H7 | A wrong sample rate is caught while running | **Supported on live-paced synthetic pipes.** Not yet seen on real hardware. | unit tests, [LAB-NOTES](LAB-NOTES.md) |
+| H8 | The engine copes with a background that is not steady | **Not supported in simulation.** A lasting change keeps it in anomaly until restart; a non-stationary background produces onsets. Real rooms not yet tried. | [E-007](experiments/E-007-living-room-model.md), [E-004](experiments/E-004-laptop-microphone.md) (planned) |
 
 A result counts as demonstrated only when the test and its outcome are written down.
 
@@ -69,6 +70,8 @@ The index and the rules: [docs/experiments/](experiments/README.md).
 
 - Synthetic signals are cleaner than any real machine or room. They test the logic, not the world.
 - A z-score against a learned baseline is sensitive to start-up conditions, drifting load and non-stationary signals. The engine learns the first seconds as normal: start it while things are normal.
+- **The baseline does not relearn while the engine is in anomaly.** A lasting change in the sound (a fan switched on, a television) keeps the engine in anomaly until it is restarted; this is by design (a degrading machine must not be accepted as normal) and is a limit nonetheless ([E-007](experiments/E-007-living-room-model.md)).
+- The tool detects "different from what it learned" in loudness and in three frequency bands. It suits steady machine sounds; speech and television are outside what it is for.
 - A transition to anomaly is not a diagnosis. It says "different from what I learned", not "bearing outer race".
 - What a tone has to look like to be noticed is set by the noise floor in its band, not by the tone alone ([E-002](experiments/E-002-tone-sweep.md)).
 - Laptop microphones apply gain control and noise suppression that change the signal. See the setup notes in [OPERATIONS.md](OPERATIONS.md).
