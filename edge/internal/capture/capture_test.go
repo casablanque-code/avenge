@@ -138,3 +138,58 @@ func TestMissingProgramIsNotFound(t *testing.T) {
 		t.Fatalf("want exec.ErrNotFound, got %v", err)
 	}
 }
+
+// Output of `arecord -l` on a real machine (an Ubuntu laptop, HD-Audio Generic).
+const realArecordList = `**** List of CAPTURE Hardware Devices ****
+card 1: Generic_1 [HD-Audio Generic], device 0: ALC256 Analog [ALC256 Analog]
+  Subdevices: 1/1
+  Subdevice #0: subdevice #0
+`
+
+func TestParseDevicesLinuxRealOutput(t *testing.T) {
+	devs := ParseDevices("linux", realArecordList)
+	if len(devs) != 1 || devs[0].Value != "plughw:CARD=Generic_1,DEV=0" || !strings.Contains(devs[0].Desc, "plughw:1,0") {
+		t.Fatalf("got %+v", devs)
+	}
+}
+
+func TestParseDevicesWindowsAndMac(t *testing.T) {
+	win := "[dshow @ 000001e2b6c3f9c0] DirectShow audio devices\r\n" +
+		"[dshow @ 000001e2b6c3f9c0]  \"Microphone (Realtek Audio)\" (audio)\r\n" +
+		"[dshow @ 000001e2b6c3f9c0]   Alternative name \"@device_cm_{33D9A762}\"\r\n"
+	if d := ParseDevices("windows", win); len(d) != 1 || d[0].Value != "Microphone (Realtek Audio)" {
+		t.Fatalf("windows: %+v", d)
+	}
+	mac := "[AVFoundation indev @ 0x7f8] AVFoundation video devices:\n" +
+		"[AVFoundation indev @ 0x7f8] [0] FaceTime HD Camera\n" +
+		"[AVFoundation indev @ 0x7f8] AVFoundation audio devices:\n" +
+		"[AVFoundation indev @ 0x7f8] [0] MacBook Pro Microphone\n"
+	if d := ParseDevices("darwin", mac); len(d) != 1 || d[0].Value != "0" || d[0].Desc != "MacBook Pro Microphone" {
+		t.Fatalf("mac: %+v", d)
+	}
+	if d := ParseDevices("linux", "arecord: device_list:277: no soundcards found..."); len(d) != 0 {
+		t.Fatalf("an empty list must give no devices: %+v", d)
+	}
+}
+
+func TestCheckDeviceCatchesAPastedLine(t *testing.T) {
+	pasted := "card 1: Generic_1 [HD-Audio Generic], device 0: ALC256 Analog [ALC256 Analog]"
+	err := CheckDevice("linux", pasted)
+	if err == nil || !strings.Contains(err.Error(), "plughw:CARD=Generic_1,DEV=0") {
+		t.Fatalf("the error must name the right value, got %v", err)
+	}
+	if _, _, err := Command("linux", pasted, 16000); err == nil {
+		t.Fatal("Command must refuse a pasted line")
+	}
+	for _, ok := range []string{"", "default", "plughw:1,0", "hw:CARD=Generic_1,DEV=0", "pulse"} {
+		if err := CheckDevice("linux", ok); err != nil {
+			t.Errorf("%q must be accepted: %v", ok, err)
+		}
+	}
+	if err := CheckDevice("linux", "[weird]"); err == nil {
+		t.Error("brackets cannot be part of an ALSA name")
+	}
+	if err := CheckDevice("windows", "Microphone (Realtek Audio)"); err != nil {
+		t.Errorf("Windows names have spaces and brackets and are fine: %v", err)
+	}
+}

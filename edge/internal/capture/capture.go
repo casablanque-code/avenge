@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -22,6 +23,9 @@ import (
 func Command(goos, device string, rate int) (string, []string, error) {
 	if rate <= 0 {
 		return "", nil, fmt.Errorf("invalid sample rate %d", rate)
+	}
+	if err := CheckDevice(goos, device); err != nil {
+		return "", nil, err
 	}
 	r := strconv.Itoa(rate)
 	switch goos {
@@ -129,4 +133,73 @@ func (p *Process) Kill() {
 	}
 	p.Wait()
 	_ = p.pr.Close()
+}
+
+// Device is one audio input as the listing tool reports it, with the value to
+// put into AUDIO_DEVICE.
+type Device struct {
+	Value string
+	Desc  string
+}
+
+var (
+	alsaLine   = regexp.MustCompile(`^card (\d+): (\S+) \[([^\]]*)\], device (\d+): (.*?) \[([^\]]*)\]`)
+	dshowLine  = regexp.MustCompile(`^\[dshow @ [^\]]*\]\s+"(.+)" \(audio\)`)
+	avfAudio   = regexp.MustCompile(`^\[AVFoundation indev @ [^\]]*\]\s+\[(\d+)\] (.+)$`)
+	avfSection = "AVFoundation audio devices"
+)
+
+// ParseDevices extracts the input devices from the output of the listing
+// command, so the user can copy a value that is known to work instead of
+// guessing the name. The Linux form is tested against real arecord output;
+// the macOS and Windows forms follow the documented ffmpeg output and still
+// need a run on those systems.
+func ParseDevices(goos, out string) []Device {
+	var devs []Device
+	switch goos {
+	case "linux":
+		for _, line := range strings.Split(out, "\n") {
+			if m := alsaLine.FindStringSubmatch(line); m != nil {
+				devs = append(devs, Device{
+					Value: fmt.Sprintf("plughw:CARD=%s,DEV=%s", m[2], m[4]),
+					Desc:  fmt.Sprintf("%s, %s (same as plughw:%s,%s)", m[3], m[6], m[1], m[4]),
+				})
+			}
+		}
+	case "windows":
+		for _, line := range strings.Split(out, "\n") {
+			if m := dshowLine.FindStringSubmatch(strings.TrimRight(line, "\r")); m != nil {
+				devs = append(devs, Device{Value: m[1], Desc: "DirectShow audio input"})
+			}
+		}
+	case "darwin":
+		inAudio := false
+		for _, line := range strings.Split(out, "\n") {
+			line = strings.TrimRight(line, "\r")
+			if strings.Contains(line, avfSection) {
+				inAudio = true
+				continue
+			}
+			if m := avfAudio.FindStringSubmatch(line); m != nil && inAudio {
+				devs = append(devs, Device{Value: m[1], Desc: m[2]})
+			}
+		}
+	}
+	return devs
+}
+
+// CheckDevice rejects AUDIO_DEVICE values that cannot be a device name, most
+// often a whole line pasted from the listing.
+func CheckDevice(goos, device string) error {
+	if goos != "linux" || device == "" {
+		return nil
+	}
+	if m := alsaLine.FindStringSubmatch(device); m != nil {
+		return fmt.Errorf("AUDIO_DEVICE looks like a line copied from the list (%q); use plughw:CARD=%s,DEV=%s (or plughw:%s,%s) instead",
+			device, m[2], m[4], m[1], m[4])
+	}
+	if strings.ContainsAny(device, "[]") || strings.HasPrefix(device, "card ") {
+		return fmt.Errorf("AUDIO_DEVICE %q is not an ALSA device name; run `edge-filter --list-audio` and copy one of the printed values (for example plughw:1,0)", device)
+	}
+	return nil
 }

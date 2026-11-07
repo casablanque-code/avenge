@@ -59,6 +59,15 @@ func listAudio() int {
 	// ffmpeg's device listing exits with an error by design; the list is
 	// what matters.
 	fmt.Print(string(out))
+	devs := capture.ParseDevices(runtime.GOOS, string(out))
+	if len(devs) > 0 {
+		fmt.Println("\nValues for AUDIO_DEVICE in edge/.env:")
+		for _, d := range devs {
+			fmt.Printf("  %s\n      %s\n", d.Value, d.Desc)
+		}
+		fmt.Println("\nCopy one of the values above exactly. Leave AUDIO_DEVICE empty to use the default device.")
+		return 0
+	}
 	if noInputDevices(string(out)) {
 		fmt.Println("\nNo audio input devices found on this machine. A server or a virtual machine has none:")
 		fmt.Println("run this on the machine that has the microphone.")

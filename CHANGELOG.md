@@ -8,6 +8,10 @@ Entries for 0.1.0 to 0.2.4 were reconstructed from the git history and the conte
 
 ## [Unreleased]
 
+### Fixed
+
+- `edge-filter --list-audio` now prints the values to put into `AUDIO_DEVICE` (on Linux `plughw:CARD=<id>,DEV=<n>`, the same as `plughw:<card>,<n>`; the dshow name on Windows; the index on macOS), and a whole line pasted from the list is refused with the right value named. The old footer ("a name or number from this list") led to exactly that mistake.
+
 
 
 ## [0.3.1] - 2026-11-07
