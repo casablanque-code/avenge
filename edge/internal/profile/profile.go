@@ -132,6 +132,7 @@ type Settings struct {
 	SensorID   string // SENSOR_ID or --sensor-id
 	SampleRate int    // SENSOR_SAMPLE_RATE
 	Input      string // SENSOR_INPUT
+	Source     string // SENSOR_SOURCE: "mic" when the engine records the microphone itself
 }
 
 // Resolved is a validated configuration ready for sensor.Manager.Add.
@@ -139,6 +140,7 @@ type Resolved struct {
 	Profile  Profile
 	Sensor   sensor.SensorConfig
 	Input    string
+	Source   string
 	Warnings []string
 }
 
@@ -190,7 +192,7 @@ func Resolve(s Settings) (Resolved, error) {
 		cfg.BaselineAlpha = math.Min(0.5, windowSec/p.BaselineTauSeconds)
 	}
 
-	res := Resolved{Profile: p, Input: input}
+	res := Resolved{Profile: p, Input: input, Source: s.Source}
 	nyquist := float64(rate) / 2
 	binHz := float64(rate) / float64(window)
 
@@ -273,6 +275,9 @@ func (r Resolved) Explain() string {
 	input := "JSONL {t, value} on stdin"
 	if r.Input == InputPCMS16LE {
 		input = "raw PCM, 16-bit LE mono, on stdin"
+		if r.Source == "mic" {
+			input = "raw PCM, 16-bit LE mono, from the microphone"
+		}
 	}
 
 	rows := [][2]string{

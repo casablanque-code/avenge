@@ -15,6 +15,7 @@ Entries for 0.1.0 to 0.2.4 were reconstructed from the git history and the conte
 
 ### Changed
 
+- `edge-filter --list-audio` says plainly when the machine has no audio input devices (a server or a virtual machine) and exits with status 1; `--explain` and `--report` say "from the microphone" instead of "on stdin" when `SENSOR_SOURCE=mic`.
 - Documentation states what the tool is for (steady machine sounds), that it does not relearn while in anomaly, and that nothing beyond the first 10 seconds calibrates it.
 
 ## [0.3.0] - 2026-11-06

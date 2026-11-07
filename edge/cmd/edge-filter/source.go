@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strings"
 
 	"github.com/casablanque-code/smart-manufacturing/edge/internal/capture"
 	"github.com/casablanque-code/smart-manufacturing/edge/internal/profile"
@@ -30,10 +31,16 @@ func applySource(s *profile.Settings, source, serialIface string) error {
 		return fmt.Errorf("SENSOR_SOURCE=mic delivers raw PCM; unset SENSOR_INPUT (it is %q)", s.Input)
 	}
 	s.Input = profile.InputPCMS16LE
+	s.Source = "mic"
 	if s.Profile == "" {
 		s.Profile = "audio"
 	}
 	return nil
+}
+
+// noInputDevices recognises the "nothing to list" answer of the listing tool.
+func noInputDevices(out string) bool {
+	return strings.Contains(out, "no soundcards found")
 }
 
 // listAudio prints the audio input devices of this machine and returns the
@@ -52,6 +59,11 @@ func listAudio() int {
 	// ffmpeg's device listing exits with an error by design; the list is
 	// what matters.
 	fmt.Print(string(out))
+	if noInputDevices(string(out)) {
+		fmt.Println("\nNo audio input devices found on this machine. A server or a virtual machine has none:")
+		fmt.Println("run this on the machine that has the microphone.")
+		return 1
+	}
 	fmt.Println("\nSet AUDIO_DEVICE in edge/.env to a name or number from this list.")
 	fmt.Println("Leave it empty to use the default device (Windows has no default: it is required).")
 	return 0

@@ -51,3 +51,19 @@ func TestApplySourceRejectsConflicts(t *testing.T) {
 		}
 	}
 }
+
+func TestNoInputDevicesIsRecognised(t *testing.T) {
+	if !noInputDevices("arecord: device_list:277: no soundcards found...\n") {
+		t.Error("arecord's empty list must be recognised")
+	}
+	if noInputDevices("**** List of CAPTURE Hardware Devices ****\ncard 0: PCH [HDA Intel PCH]") {
+		t.Error("a real device list must not be taken for an empty one")
+	}
+}
+
+func TestApplySourceMarksTheMicrophone(t *testing.T) {
+	var s profile.Settings
+	if err := applySource(&s, "mic", ""); err != nil || s.Source != "mic" {
+		t.Fatalf("got %+v %v", s, err)
+	}
+}
