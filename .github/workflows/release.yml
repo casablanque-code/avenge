@@ -105,6 +105,18 @@ jobs:
           fetch-depth: 0   # full history needed for changelog generation
           persist-credentials: false
 
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: edge/go.mod
+          # No go.sum: the project has zero external dependencies.
+          cache: false
+
+      # Static edge-filter binaries for every platform, built from the tagged
+      # commit with the toolchain declared in edge/go.mod (the same script runs
+      # in CI on every pull request, so a broken build is found before a tag).
+      - name: Build release binaries
+        run: tools/build-binaries.sh "$GITHUB_REF_NAME" "$RUNNER_TEMP/dist"
+
       - name: Build release notes from CHANGELOG.md
         env:
           REPO_OWNER: ${{ github.repository_owner }}
@@ -119,9 +131,18 @@ jobs:
             echo "docker pull ${image}"
             echo '```'
           } > "$RUNNER_TEMP/release-notes.md"
+          cat >> "$RUNNER_TEMP/release-notes.md" <<'NOTES'
+
+          ### Binaries
+
+          Static `edge-filter` for Linux (amd64, arm64, armv7), Windows (amd64) and macOS (arm64, amd64).
+          Needed for the microphone: Docker has no sound device.
+          Verify a download with `sha256sum -c --ignore-missing SHA256SUMS`.
+          NOTES
 
       - name: Create release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           body_path: ${{ runner.temp }}/release-notes.md
+          files: ${{ runner.temp }}/dist/*
           prerelease: ${{ contains(github.ref_name, '-') }}

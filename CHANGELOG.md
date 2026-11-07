@@ -8,11 +8,15 @@ Entries for 0.1.0 to 0.2.4 were reconstructed from the git history and the conte
 
 ## [Unreleased]
 
+### Added
+
+- Release binaries: every release now carries static `edge-filter` archives for Linux (amd64, arm64, armv7), Windows (amd64) and macOS (arm64, amd64), with `SHA256SUMS`, next to the image. `tools/build-binaries.sh` builds them (reproducibly: the same commit and Go give identical files) and runs on every pull request, so a broken build shows before a tag.
+- `tools/release.sh`: `prepare X.Y.Z` does the three CHANGELOG edits of a release (rename `[Unreleased]`, keep a fresh one, fix the link lines) and refuses an empty `[Unreleased]`; `check vX.Y.Z` runs, locally, what the Release workflow checks.
+- `docs/RELEASING.md` (the whole procedure, version numbers, what to do when a run fails), a `Docs` workflow that runs the repository checks on Markdown-only pushes to `main`, and a LAB-NOTES entry about the half-made 0.3.1.
+
 ### Fixed
 
 - `edge-filter --list-audio` now prints the values to put into `AUDIO_DEVICE` (on Linux `plughw:CARD=<id>,DEV=<n>`, the same as `plughw:<card>,<n>`; the dshow name on Windows; the index on macOS), and a whole line pasted from the list is refused with the right value named. The old footer ("a name or number from this list") led to exactly that mistake.
-
-
 
 ## [0.3.1] - 2026-11-07
 

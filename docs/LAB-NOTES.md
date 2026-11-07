@@ -62,6 +62,22 @@ A measuring instrument has one unforgivable failure mode: giving a confident wro
 
 ---
 
+## A release that was only half a release
+
+**What happened.** The first attempt at 0.3.1 produced a tag, a release page on GitHub, and no image. The package on ghcr.io stayed at 0.3.0.
+
+**Why.** Three small things, none of them dramatic.
+
+- Cutting a release means editing the CHANGELOG in three places: rename `[Unreleased]` to the new version, keep a fresh empty `[Unreleased]`, fix the two link lines at the bottom. The repository's checks insist on all three. Two of them were missed.
+- Those edits were committed straight to `main`. CI skips pushes that only touch Markdown, so nothing was red.
+- The tag was then created from the GitHub release form. That makes a lightweight tag and a release page, and starts the pipeline, whose first job runs the same checks. They failed on the tagged commit, so the image build never started. The page existed anyway, because it had been made by hand: the pipeline creates it only as the last step.
+
+**What we changed.** The tag was recreated on a commit that passes the checks. A script now does the three CHANGELOG edits and refuses to run on an empty `[Unreleased]`, another runs the pipeline's checks locally before you tag, a small workflow runs the repository checks on Markdown-only pushes, and the whole procedure is written down in [RELEASING](RELEASING.md). Nobody had written the steps down; that was the actual bug.
+
+**The lesson.** A release process that depends on remembering three edits will fail at the first release made by someone in a hurry, and that someone is always us. If a step can be forgotten, it should be a script. And a failure that only shows on the tag run is a failure in the wrong place: it should have been red on the pull request.
+
+---
+
 ## Small victories
 
 - **A fake microphone, a real pipeline.** With a stand-in `arecord` producing a live-paced sine, the whole Linux microphone path ran: 256 windows in 16 seconds, rate check green, and after SIGINT or SIGTERM no capture process left behind. The stand-in is not a microphone. It does prove the plumbing.

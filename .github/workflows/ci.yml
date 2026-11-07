@@ -56,6 +56,11 @@ jobs:
           # No go.sum: the project has zero external dependencies.
           cache: false
 
+      - name: Release binaries build for every platform
+        if: matrix.name == 'go.mod'
+        working-directory: .
+        run: tools/build-binaries.sh ci "$RUNNER_TEMP/dist"
+
       - name: gofmt
         run: |
           unformatted=$(gofmt -l .)
@@ -144,7 +149,7 @@ jobs:
           yamllint --strict .
 
       - name: shellcheck
-        run: shellcheck tests/lint/*.sh tests/e2e/*.sh
+        run: shellcheck tests/lint/*.sh tests/e2e/*.sh tools/*.sh
 
       - name: hadolint
         run: docker run --rm -i hadolint/hadolint:v2.12.0 < edge/Dockerfile

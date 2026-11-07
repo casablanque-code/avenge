@@ -10,6 +10,7 @@
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Diagrams, deployment, data model, sequences |
 | [OPERATIONS.md](OPERATIONS.md) | Ports, first run, accounts, secrets, microphone, troubleshooting |
 | [TESTING.md](TESTING.md) | What CI checks and how to run it locally |
+| [RELEASING.md](RELEASING.md) | How a release is made, checked and verified |
 
 ## Repository layout
 
@@ -28,7 +29,8 @@ avenge/
 │   └── .env.example
 ├── tests/
 │   ├── e2e/run.sh               # Full-stack end-to-end test (Docker)
-│   └── lint/                    # repo-checks.sh, mermaid/ (diagram parse check)
+│   └── lint/                    # repo-checks.sh, changelog-section.sh, mermaid/
+├── tools/                       # build-binaries.sh (release archives), release.sh (prepare, check)
 ├── .github/                     # CI, release workflow, Dependabot
 └── docs/
 ```

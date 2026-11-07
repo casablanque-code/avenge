@@ -33,6 +33,22 @@ cp edge/.env.example edge/.env         # SERIAL_INTERFACE, SENSOR_SAMPLE_RATE, C
 docker compose -f edge/compose.yaml up -d
 ```
 
+### Without Docker: release binaries
+
+Every release carries static `edge-filter` archives for Linux (amd64, arm64, armv7), Windows (amd64) and macOS (arm64, amd64). The microphone needs one of them: the Docker image has no sound device.
+
+```
+# on the device (arm64 shown; armv7 for a 32-bit Raspberry Pi OS)
+curl -LO https://github.com/casablanque-code/avenge/releases/download/<tag>/avenge-edge_<tag>_linux_arm64.tar.gz
+curl -LO https://github.com/casablanque-code/avenge/releases/download/<tag>/SHA256SUMS
+sha256sum -c --ignore-missing SHA256SUMS
+tar -xzf avenge-edge_<tag>_linux_arm64.tar.gz && cd avenge-edge_<tag>_linux_arm64
+cp .env.example .env              # then edit it, see the sections above
+./edge-filter --version
+```
+
+`uname -m` tells the architecture: `x86_64` is amd64, `aarch64` is arm64, `armv7l` is armv7. The engine reads `.env` from the directory it is started in.
+
 ## Accounts
 
 Usernames are fixed by the configuration; only passwords live in `.env`.
