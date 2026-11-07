@@ -6,7 +6,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 Entries for 0.1.0 to 0.2.4 were reconstructed from the git history and the contents of each tag. Release notes on GitHub are taken from the matching section of this file.
 
-## [Unreleased]
+## [0.3.1] - 2026-11-07
 
 ### Added
 
