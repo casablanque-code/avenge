@@ -169,3 +169,17 @@ func TestExplainTellsCaptureRate(t *testing.T) {
 		t.Fatal("explain for PCM input must state the capture rate")
 	}
 }
+
+func TestExplainSaysWhereMicrophoneSoundComesFrom(t *testing.T) {
+	r, err := Resolve(Settings{Profile: "audio", Source: "mic"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out := r.Explain(); !strings.Contains(out, "from the microphone") || strings.Contains(out, "on stdin") {
+		t.Fatalf("explain for the microphone must not say stdin:\n%s", out)
+	}
+	r, _ = Resolve(Settings{Profile: "audio"})
+	if !strings.Contains(r.Explain(), "on stdin") {
+		t.Fatal("explain for stdin must say stdin")
+	}
+}
