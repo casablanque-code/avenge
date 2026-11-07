@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS iot.telemetry_raw
 )
 ENGINE = MergeTree()
 ORDER BY tuple()
-TTL received_at + INTERVAL 7 DAY;
+TTL received_at + INTERVAL @RAW_DAYS@ DAY;
 
 -- ── Telemetry table ────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS iot.telemetry
@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS iot.telemetry
 ENGINE = MergeTree()
 PARTITION BY toYYYYMM(ts)
 ORDER BY (sensor_id, ts)
-TTL toDateTime(ts) + INTERVAL 30 DAY
+TTL toDateTime(ts) + INTERVAL @RETENTION_DAYS@ DAY
 SETTINGS index_granularity = 8192;
 
 -- ── Anomaly events table ───────────────────────────────────────────────
@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS iot.anomaly_events
 ENGINE = MergeTree()
 PARTITION BY toYYYYMM(ts)
 ORDER BY (sensor_id, ts)
-TTL toDateTime(ts) + INTERVAL 90 DAY
+TTL toDateTime(ts) + INTERVAL @RETENTION_DAYS@ DAY
 SETTINGS index_granularity = 8192;
 
 -- Upgrade of an existing database: older tables lack the two columns.
@@ -117,7 +117,8 @@ CREATE TABLE IF NOT EXISTS iot.telemetry_1m
 )
 ENGINE = SummingMergeTree()
 PARTITION BY toYYYYMM(ts_bucket)
-ORDER BY (sensor_id, ts_bucket);
+ORDER BY (sensor_id, ts_bucket)
+TTL ts_bucket + INTERVAL @RETENTION_DAYS@ DAY;
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS iot.mv_telemetry_1m
 TO iot.telemetry_1m
@@ -145,4 +146,14 @@ ALTER TABLE iot.mv_telemetry_1m    MODIFY DEFINER = CURRENT_USER SQL SECURITY DE
 -- ── Upgrade path for databases created by older versions ───────────────
 -- (no-ops on a fresh database)
 ALTER TABLE iot.telemetry_raw ADD COLUMN IF NOT EXISTS received_at DateTime MATERIALIZED now();
-ALTER TABLE iot.telemetry_raw MODIFY TTL received_at + INTERVAL 7 DAY;
+
+-- ── Retention ───────────────────────────────────────────────────────────
+-- The days in the TTL clauses of this file are templates: the clickhouse-init
+-- service replaces them with RETENTION_DAYS from core/.env (default 30), and
+-- the landing table with the shorter of that and 7, before running the file.
+-- The ALTERs bring tables created by older versions, or with another
+-- RETENTION_DAYS, to the current value on every run.
+ALTER TABLE iot.telemetry_raw  MODIFY TTL received_at + INTERVAL @RAW_DAYS@ DAY;
+ALTER TABLE iot.telemetry      MODIFY TTL toDateTime(ts) + INTERVAL @RETENTION_DAYS@ DAY;
+ALTER TABLE iot.anomaly_events MODIFY TTL toDateTime(ts) + INTERVAL @RETENTION_DAYS@ DAY;
+ALTER TABLE iot.telemetry_1m   MODIFY TTL ts_bucket + INTERVAL @RETENTION_DAYS@ DAY;

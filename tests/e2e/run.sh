@@ -202,6 +202,19 @@ check "combined-score fields (final_score, dominant_signal) reach ClickHouse" \
   rows_at_least "SELECT count() FROM iot.telemetry WHERE sensor_id = '$SENSOR' AND dominant_signal != ''" 3
 check "per-minute aggregate populated" \
   rows_at_least "SELECT count() FROM iot.telemetry_1m WHERE sensor_id = '$SENSOR'" 1
+
+# ── 6. retention: nothing grows without a limit ─────────────────────────
+step "Retention (default RETENTION_DAYS=30)"
+retention_is() { # <table> <days>
+  ch default "${PW[CLICKHOUSE_PASSWORD]}" "SHOW CREATE TABLE iot.$1" | grep -q "INTERVAL $2 DAY"
+}
+check "iot.telemetry keeps 30 days" retention_is telemetry 30
+check "iot.anomaly_events keeps 30 days" retention_is anomaly_events 30
+check "iot.telemetry_1m keeps 30 days" retention_is telemetry_1m 30
+check "iot.telemetry_raw keeps 7 days" retention_is telemetry_raw 7
+wait_for 60 rows_at_least "SELECT count() FROM system.tables WHERE database = 'system' AND name = 'query_log'" 1 || true
+check "ClickHouse's own query_log has a TTL" \
+  rows_at_least "SELECT count() FROM system.tables WHERE database = 'system' AND name = 'query_log' AND engine_full LIKE '%TTL%'" 1
 check "critical anomaly onset recorded" \
   rows_at_least "SELECT count() FROM iot.anomaly_events WHERE sensor_id = '$SENSOR' AND event_type = 'onset' AND severity = 'critical'" 1
 check "anomaly event names its source (dominant_signal)" \

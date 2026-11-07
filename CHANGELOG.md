@@ -13,6 +13,11 @@ Entries for 0.1.0 to 0.2.4 were reconstructed from the git history and the conte
 - Release binaries: every release now carries static `edge-filter` archives for Linux (amd64, arm64, armv7), Windows (amd64) and macOS (arm64, amd64), with `SHA256SUMS`, next to the image. `tools/build-binaries.sh` builds them (reproducibly: the same commit and Go give identical files) and runs on every pull request, so a broken build shows before a tag.
 - `tools/release.sh`: `prepare X.Y.Z` does the three CHANGELOG edits of a release (rename `[Unreleased]`, keep a fresh one, fix the link lines) and refuses an empty `[Unreleased]`; `check vX.Y.Z` runs, locally, what the Release workflow checks.
 - `docs/RELEASING.md` (the whole procedure, version numbers, what to do when a run fails), a `Docs` workflow that runs the repository checks on Markdown-only pushes to `main`, and a LAB-NOTES entry about the half-made 0.3.1.
+- **Data retention is one setting.** `RETENTION_DAYS` in `core/.env` (default 30, 1 to 3650) sets how long `iot.telemetry`, `iot.anomaly_events` and `iot.telemetry_1m` keep their rows; the raw landing table keeps at most 7 days, and ClickHouse's own log tables (query, trace, metric and text logs) now expire after a week, which they never did before. `clickhouse-init` applies the value on every `up -d`, the preflight rejects anything that is not a whole number of days, and the end-to-end test checks the TTLs. Experiment E-008 (planned) will measure the plateau.
+
+### Changed
+
+- **Retention defaults changed:** anomaly events are kept 30 days instead of 90, and the per-minute aggregates 30 days instead of forever. After upgrading, rows older than that are deleted at the next merge; set `RETENTION_DAYS=90` first to keep events as long as before.
 
 ### Fixed
 

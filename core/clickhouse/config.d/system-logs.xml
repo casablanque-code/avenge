@@ -1,0 +1,18 @@
+<clickhouse>
+  <!--
+    ClickHouse writes a table for everything it does (queries, traces,
+    metrics, text logs). Left alone these grow without a limit, even on an
+    idle server. Keep a week of each. Mounted into
+    /etc/clickhouse-server/config.d/ by core/compose.yaml.
+  -->
+  <query_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></query_log>
+  <query_thread_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></query_thread_log>
+  <query_views_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></query_views_log>
+  <part_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></part_log>
+  <trace_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></trace_log>
+  <metric_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></metric_log>
+  <asynchronous_metric_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></asynchronous_metric_log>
+  <text_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></text_log>
+  <processors_profile_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></processors_profile_log>
+  <session_log><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></session_log>
+</clickhouse>

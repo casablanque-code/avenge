@@ -58,6 +58,7 @@ services:
       GRAFANA_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is not set}
       MQTT_EDGE_PASSWORD: ${MQTT_EDGE_PASSWORD:?MQTT_EDGE_PASSWORD is not set}
       MQTT_TELEGRAF_PASSWORD: ${MQTT_TELEGRAF_PASSWORD:?MQTT_TELEGRAF_PASSWORD is not set}
+      RETENTION_DAYS: ${RETENTION_DAYS:-30}
     command:
       - sh
       - -c
@@ -70,6 +71,10 @@ services:
             *[!A-Za-z0-9]*) echo "ERROR: $$v must contain only letters and digits"; bad=1 ;;
           esac
         done
+        case "$$RETENTION_DAYS" in
+          ''|*[!0-9]*) echo "ERROR: RETENTION_DAYS must be a whole number of days (it is '$$RETENTION_DAYS')"; bad=1 ;;
+          *) if [ "$$RETENTION_DAYS" -lt 1 ] || [ "$$RETENTION_DAYS" -gt 3650 ]; then echo "ERROR: RETENTION_DAYS must be between 1 and 3650"; bad=1; fi ;;
+        esac
         exit $$bad
 
   # ── MQTT Broker ────────────────────────────────────────────────────────
@@ -127,6 +132,8 @@ services:
       - clickhouse-data:/var/lib/clickhouse
       # Service accounts (telegraf: INSERT only, grafana: read-only).
       - ./clickhouse/users.d/avenge-users.xml:/etc/clickhouse-server/users.d/avenge-users.xml:ro
+      # ClickHouse's own log tables (query_log, trace_log, ...) expire after a week.
+      - ./clickhouse/config.d/system-logs.xml:/etc/clickhouse-server/config.d/system-logs.xml:ro
       # NOTE: init.sql is intentionally NOT mounted to
       # docker-entrypoint-initdb.d (double-process startup bug in the
       # 24.3-alpine image). The clickhouse-init service applies it instead.
@@ -163,14 +170,19 @@ services:
     environment:
       CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
       CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:?CLICKHOUSE_PASSWORD is not set}
+      RETENTION_DAYS: ${RETENTION_DAYS:-30}
     entrypoint: ["sh", "-c"]
     command:
       - |
         set -e
         ch() { clickhouse-client --host clickhouse --user "$$CLICKHOUSE_USER" --password "$$CLICKHOUSE_PASSWORD" "$$@"; }
+        # The landing table keeps raw JSON for at most a week, or less if the
+        # retention is shorter.
+        raw=7
+        [ "$$RETENTION_DAYS" -lt 7 ] && raw="$$RETENTION_DAYS"
         ch --query "CREATE DATABASE IF NOT EXISTS iot"
-        ch --multiquery < /init.sql
-        echo "schema applied"
+        sed -e "s/@RETENTION_DAYS@/$$RETENTION_DAYS/g" -e "s/@RAW_DAYS@/$$raw/g" /init.sql | ch --multiquery
+        echo "schema applied (retention $$RETENTION_DAYS days)"
 
   # ── Telegraf (MQTT subscriber → ClickHouse writer) ─────────────────────
   telegraf:

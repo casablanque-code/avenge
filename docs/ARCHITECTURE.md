@@ -154,10 +154,10 @@ flowchart LR
     raw[("iot.telemetry_raw<br/>one JSON batch per row<br/>kept 7 days")]
     mvt["mv_telemetry_parse"]
     mva["mv_anomaly_parse"]
-    tel[("iot.telemetry<br/>kept 30 days")]
-    ev[("iot.anomaly_events<br/>kept 90 days")]
+    tel[("iot.telemetry<br/>kept RETENTION_DAYS (default 30)")]
+    ev[("iot.anomaly_events<br/>kept RETENTION_DAYS (default 30)")]
     mv1["mv_telemetry_1m"]
-    t1m[("iot.telemetry_1m<br/>per-minute aggregate<br/>kept indefinitely")]
+    t1m[("iot.telemetry_1m<br/>per-minute aggregate<br/>kept RETENTION_DAYS (default 30)")]
     graf["Grafana dashboard<br/>Vibration Monitor"]
 
     t1 --> tg

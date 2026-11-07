@@ -255,11 +255,28 @@ The file is 60 s long; the tone starts at 30 s, after the 10 s learning period. 
 
 ## Data retention
 
-| Table                  | Contents                                   | Kept |
-| ---------------------- | ------------------------------------------ | ---- |
-| `iot.telemetry_raw`    | Raw JSON batches from Telegraf (a buffer)  | 7 days |
-| `iot.telemetry`        | Parsed telemetry points                    | 30 days |
-| `iot.anomaly_events`   | Anomaly state transitions                  | 90 days |
-| `iot.telemetry_1m`     | Per-minute aggregates (one row per sensor per minute) | Indefinitely |
+Nothing grows without a limit. One setting, `RETENTION_DAYS` in `core/.env` (default **30**), decides how long the data tables keep their rows; ClickHouse's own log tables are fixed at a week.
 
-Retention is set in `core/clickhouse/init.sql` and applied by `clickhouse-init` on every `up -d`. Raw rows written before the 7-day TTL existed are not expired automatically; to reclaim that space once, run `docker exec sm_clickhouse clickhouse-client --user default --password "$CLICKHOUSE_PASSWORD" --query "TRUNCATE TABLE iot.telemetry_raw"` (the parsed tables are unaffected).
+| Table | Contents | Kept |
+| --- | --- | --- |
+| `iot.telemetry` | Parsed telemetry points | `RETENTION_DAYS` |
+| `iot.anomaly_events` | Anomaly state changes | `RETENTION_DAYS` |
+| `iot.telemetry_1m` | Per-minute aggregates (one row per sensor per minute) | `RETENTION_DAYS` |
+| `iot.telemetry_raw` | Raw JSON batches from Telegraf (a buffer) | 7 days, or `RETENTION_DAYS` if shorter |
+| `system.*_log` | ClickHouse's own logs (queries, traces, metrics) | 7 days |
+
+Docker's container logs are rotated by Docker (10 MB, 3 files per container).
+
+**Changing it.** Edit `RETENTION_DAYS` (1 to 3650), then `docker compose -f core/compose.yaml up -d`: `clickhouse-init` runs again and brings every table to the new value. ClickHouse removes expired rows when it merges data, so space is given back within hours, not at once. **Lowering it deletes the older data**; raising it only keeps more from then on.
+
+**Upgrading from 0.3.x.** Anomaly events used to be kept for 90 days and the per-minute aggregates forever. With the default they are now kept 30 days. To keep the old behaviour for events, set `RETENTION_DAYS=90` before running `up -d`.
+
+**How big does it get?** Rows per sensor per day, as arithmetic: about 13,500 telemetry rows for the vibration profile (a message every 6.4 s), 8,640 for the audio profile (every 10 s), 1,440 per-minute rows. That is small, but it is arithmetic, not a measurement ([E-008](experiments/E-008-storage-growth.md) will measure it). To see the real numbers:
+
+```
+docker exec sm_clickhouse clickhouse-client --user default --password '<CLICKHOUSE_PASSWORD>' --query \
+  "SELECT database, table, formatReadableSize(sum(bytes_on_disk)) AS size, sum(rows) AS rows FROM system.parts WHERE active GROUP BY database, table ORDER BY sum(bytes_on_disk) DESC"
+docker exec sm_clickhouse clickhouse-client --user default --password '<CLICKHOUSE_PASSWORD>' --query "SHOW CREATE TABLE iot.telemetry"   # the TTL clause shows the value in force
+```
+
+An installation that ran before the system-log limits existed keeps its old log tables as they were; clear them once with `TRUNCATE TABLE system.query_log` (and the same for `trace_log`, `metric_log`, `text_log`) if the query above shows them large.

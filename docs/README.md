@@ -44,9 +44,9 @@ avenge/
 
 | ClickHouse table | Engine | TTL | Purpose |
 |---|---|---|---|
-| `iot.telemetry` | MergeTree | 30 days | Telemetry points |
-| `iot.anomaly_events` | MergeTree | 90 days | Alert history |
-| `iot.telemetry_1m` | SummingMergeTree (MV) | none | 1-minute RMS aggregates |
+| `iot.telemetry` | MergeTree | `RETENTION_DAYS` (30) | Telemetry points |
+| `iot.anomaly_events` | MergeTree | `RETENTION_DAYS` (30) | Alert history |
+| `iot.telemetry_1m` | SummingMergeTree (MV) | `RETENTION_DAYS` (30) | 1-minute RMS aggregates |
 
 Full data model: [ARCHITECTURE.md](ARCHITECTURE.md).
 
