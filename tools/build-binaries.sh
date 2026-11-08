@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Builds the release archives of edge-filter for every supported platform.
+# Builds the release archives (edge-filter and avenge, the setup tool) for
+# every supported platform.
 #
 #   tools/build-binaries.sh VERSION OUTDIR
 #
@@ -34,15 +35,17 @@ for target in "${targets[@]}"; do
   dir="$stage/$name"
   mkdir -p "$dir"
 
-  bin=edge-filter
-  [[ $goos == windows ]] && bin=edge-filter.exe
+  ext=
+  [[ $goos == windows ]] && ext=.exe
 
   echo "building $name"
   (
     cd "$root/edge"
-    CGO_ENABLED=0 GOOS=$goos GOARCH=$goarch GOARM=${goarm:-} \
-      go build -trimpath -ldflags "-s -w -X main.version=$version" \
-      -o "$dir/$bin" ./cmd/edge-filter
+    for cmd in edge-filter avenge; do
+      CGO_ENABLED=0 GOOS=$goos GOARCH=$goarch GOARM=${goarm:-} \
+        go build -trimpath -ldflags "-s -w -X main.version=$version" \
+        -o "$dir/$cmd$ext" "./cmd/$cmd"
+    done
   )
   cp "$root/LICENSE" "$dir/LICENSE"
   cp "$root/edge/.env.example" "$dir/.env.example"
@@ -58,15 +61,17 @@ done
 
 (cd "$outdir" && sha256sum "avenge-edge_${version}_"* > SHA256SUMS)
 
-# Self-test: the linux/amd64 binary must report the version it was stamped with.
+# Self-test: the linux/amd64 binaries must report the version it was stamped with.
 if [[ "$(go env GOOS)/$(go env GOARCH)" == linux/amd64 ]]; then
   mkdir -p "$stage/selftest"
   tar -xzf "$outdir/avenge-edge_${version}_linux_amd64.tar.gz" -C "$stage/selftest"
-  got=$("$stage/selftest/avenge-edge_${version}_linux_amd64/edge-filter" --version)
-  if [[ $got != "edge-filter $version"* ]]; then
-    echo "error: the binary reports '$got', expected it to start with 'edge-filter $version'" >&2
-    exit 1
-  fi
-  echo "self-test: $got"
+  for cmd in edge-filter avenge; do
+    got=$("$stage/selftest/avenge-edge_${version}_linux_amd64/$cmd" --version)
+    if [[ $got != "$cmd $version"* ]]; then
+      echo "error: $cmd reports '$got', expected it to start with '$cmd $version'" >&2
+      exit 1
+    fi
+    echo "self-test: $got"
+  done
 fi
 echo "wrote $(wc -l < "$outdir/SHA256SUMS") archives and SHA256SUMS to $outdir"
