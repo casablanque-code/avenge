@@ -8,6 +8,8 @@ Entries for 0.1.0 to 0.2.4 were reconstructed from the git history and the conte
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-09
+
 ### Added
 
 - **`avenge`, the setup wizard and doctor** (ADR-0010), a second binary in every release archive next to `edge-filter`:
@@ -234,7 +236,8 @@ First tagged release of the proof of concept (development since 2026-05-28).
 
 - End-to-end pipeline from MQTT to ClickHouse and Grafana stabilized; EMA bias, hysteresis and severity levels in the detector; telemetry flush and statistics sample rate; the ClickHouse password reaches the Grafana datasource.
 
-[Unreleased]: https://github.com/casablanque-code/avenge/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/casablanque-code/avenge/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/casablanque-code/avenge/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/casablanque-code/avenge/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/casablanque-code/avenge/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/casablanque-code/avenge/compare/v0.2.4...v0.3.0
