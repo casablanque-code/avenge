@@ -8,6 +8,8 @@ Entries for 0.1.0 to 0.2.4 were reconstructed from the git history and the conte
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-11-09
+
 ### Added
 
 - `tests/lint/repo-checks.sh` now checks the sensor firmware (`firmware/ADXL345/adxl345.ino`) against the engine: its sample rate against its own data-rate register and against `edge/.env.example`, its baud rate against the engine's default, the `0xAA` start marker on both sides. The docs now say the firmware is in the repository and that nobody here has run it on a board yet.
@@ -245,7 +247,8 @@ First tagged release of the proof of concept (development since 2026-05-28).
 
 - End-to-end pipeline from MQTT to ClickHouse and Grafana stabilized; EMA bias, hysteresis and severity levels in the detector; telemetry flush and statistics sample rate; the ClickHouse password reaches the Grafana datasource.
 
-[Unreleased]: https://github.com/casablanque-code/avenge/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/casablanque-code/avenge/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/casablanque-code/avenge/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/casablanque-code/avenge/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/casablanque-code/avenge/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/casablanque-code/avenge/compare/v0.3.0...v0.3.1
