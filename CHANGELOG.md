@@ -8,6 +8,8 @@ Entries for 0.1.0 to 0.2.4 were reconstructed from the git history and the conte
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-08
+
 ### Added
 
 - Release binaries: every release now carries static `edge-filter` archives for Linux (amd64, arm64, armv7), Windows (amd64) and macOS (arm64, amd64), with `SHA256SUMS`, next to the image. `tools/build-binaries.sh` builds them (reproducibly: the same commit and Go give identical files) and runs on every pull request, so a broken build shows before a tag.
@@ -216,7 +218,8 @@ First tagged release of the proof of concept (development since 2026-05-28).
 
 - End-to-end pipeline from MQTT to ClickHouse and Grafana stabilized; EMA bias, hysteresis and severity levels in the detector; telemetry flush and statistics sample rate; the ClickHouse password reaches the Grafana datasource.
 
-[Unreleased]: https://github.com/casablanque-code/avenge/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/casablanque-code/avenge/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/casablanque-code/avenge/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/casablanque-code/avenge/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/casablanque-code/avenge/compare/v0.2.4...v0.3.0
 [0.2.4]: https://github.com/casablanque-code/avenge/compare/v0.2.3...v0.2.4
