@@ -40,7 +40,7 @@ Dashboards: `http://grafana.localhost` (user `admin`, password `GRAFANA_ADMIN_PA
 
 No broker at hand? Add `--no-mqtt` and the engine just prints. A microphone instead of the simulator: set `SENSOR_SOURCE=mic` in `edge/.env` and run `./edge/edge-filter --explain` to see exactly what will happen. Everything the binary understands: `./edge/edge-filter --help`.
 
-Real sensors, secrets, ports, troubleshooting: [docs/OPERATIONS.md](docs/OPERATIONS.md).
+Real sensors, secrets, ports, troubleshooting: [docs/OPERATIONS.md](docs/OPERATIONS.md). For a real core and edge, `avenge core setup` and `avenge edge setup` ask the questions and write the `.env` files (same document).
 
 ## Where to read next
 

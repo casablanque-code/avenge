@@ -25,7 +25,7 @@ Releases are made by the pipeline, never by hand. The page on GitHub, the image 
    ```
    docker run --rm ghcr.io/casablanque-code/avenge-edge:vX.Y.Z --version      # prints vX.Y.Z
    ```
-   On the release page: six archives and `SHA256SUMS`. Download one, `sha256sum -c --ignore-missing SHA256SUMS`, run `edge-filter --version`.
+   On the release page: six archives and `SHA256SUMS`. Download one, `sha256sum -c --ignore-missing SHA256SUMS`, run `edge-filter --version` and `avenge --version`.
 
 ## Version numbers
 
@@ -45,7 +45,7 @@ Read the failed job first; the tag run is the only place the whole chain is exer
 | Artifact | Where |
 |---|---|
 | Image `ghcr.io/casablanque-code/avenge-edge:vX.Y.Z` (and `latest` for stable tags), linux/amd64 and linux/arm64 | Packages |
-| `avenge-edge_vX.Y.Z_<os>_<arch>` archives: Linux amd64, arm64, armv7; Windows amd64 (zip); macOS arm64, amd64. Each has `edge-filter`, `LICENSE`, `.env.example` | Release page |
+| `avenge-edge_vX.Y.Z_<os>_<arch>` archives: Linux amd64, arm64, armv7; Windows amd64 (zip); macOS arm64, amd64. Each has `edge-filter`, `avenge`, `LICENSE`, `.env.example` | Release page |
 | `SHA256SUMS` | Release page |
 | Release notes: the CHANGELOG section plus how to pull the image | Release page |
 

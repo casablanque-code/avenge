@@ -135,7 +135,7 @@ jobs:
 
           ### Binaries
 
-          Static `edge-filter` for Linux (amd64, arm64, armv7), Windows (amd64) and macOS (arm64, amd64).
+          Static `edge-filter` and `avenge` (the setup wizard) for Linux (amd64, arm64, armv7), Windows (amd64) and macOS (arm64, amd64).
           Needed for the microphone: Docker has no sound device.
           Verify a download with `sha256sum -c --ignore-missing SHA256SUMS`.
           NOTES

@@ -8,7 +8,7 @@
 | [adr/](adr/README.md) | Architecture decision records |
 | [DOC.md](DOC.md) | Concept, algorithms, security model |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Diagrams, deployment, data model, sequences |
-| [OPERATIONS.md](OPERATIONS.md) | Ports, first run, accounts, secrets, microphone, troubleshooting |
+| [OPERATIONS.md](OPERATIONS.md) | Ports, setup wizard, first run, accounts, secrets, microphone, troubleshooting |
 | [TESTING.md](TESTING.md) | What CI checks and how to run it locally |
 | [RELEASING.md](RELEASING.md) | How a release is made, checked and verified |
 
@@ -19,7 +19,9 @@ avenge/
 ├── firmware-sim/                # Hardware-free signal generator (Python)
 ├── edge/                        # The engine (Go)
 │   ├── cmd/edge-filter/         # Entrypoint, flags, --help, --explain, graceful shutdown
-│   ├── internal/                # sensor, profile, capture, fft, filter (SDT), anomaly, scoring, mqtt, envfile
+│   ├── cmd/avenge/              # Setup wizard and doctor: core setup, core pair, edge setup, doctor
+│   ├── internal/                # sensor, profile, capture, fft, filter (SDT), anomaly, scoring, mqtt, envfile,
+│   │                            # envedit, prompt, pairing, probe, netinfo (used by avenge)
 │   ├── Dockerfile               # Multi-stage build -> distroless, ARM64-ready
 │   ├── compose.yaml             # Deploy target: Raspberry Pi / edge device
 │   └── .env.example

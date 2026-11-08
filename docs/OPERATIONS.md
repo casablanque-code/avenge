@@ -10,6 +10,30 @@ How to run, configure and maintain the AVENGE stack. Concept and algorithms: [DO
 | Mosquitto  | `$MQTT_BIND:1883`                             | Auth + ACL required. Set `MQTT_BIND` to the LAN IP so edge devices can connect. |
 | ClickHouse | `127.0.0.1:8123` (HTTP), `127.0.0.1:9000`     | Local only. |
 
+## Setup with `avenge`
+
+`avenge` asks the questions, writes the `.env` files for you and checks the result. It is in the same archive as `edge-filter` (see "Without Docker: release binaries"). **Status:** unit tested with fakes; the first run on clean machines is still to be logged, so the manual steps below stay the reference.
+
+```
+# on the core machine, in a clone of the repository
+avenge core setup          # bind address, Grafana password; the other passwords are generated;
+                           # writes core/.env (mode 0600), offers to start the core, prints a pairing code
+# on the edge device, in the directory of edge-filter
+avenge edge setup          # sensor or microphone, device, sample rate, link to the core (paste the code)
+avenge doctor              # what is wrong, in plain words (also: avenge doctor core | edge)
+avenge core pair           # print the pairing code again
+```
+
+What it does and does not do:
+
+- A re-run shows the current values as defaults. Working passwords are kept; `avenge core setup --regenerate` makes new ones (every edge device then needs `avenge edge setup` again). The old file is kept as `.env.bak-<time>`.
+- Serial: lists `/dev/serial/by-id/...`, `ttyACM*`, `ttyUSB*`, can **measure** the real sample rate for 5 s and proposes the nearest standard value (the reference ADXL345 firmware runs at 1600). Serial is Linux only. Microphone: lists the devices the way `edge-filter --list-audio` does and writes the value that works.
+- It ends with the link check (TCP, then the MQTT login) and a 15 s trial run of `edge-filter --no-mqtt` (rate check, signal level). The trial sends nothing to the core.
+- The pairing code holds the MQTT password, encoded but not encrypted. Treat it like the password.
+- A change of `.env` takes effect at the next start: `docker compose -f core/compose.yaml up -d` for the core, a restart of `edge-filter` for the edge.
+- Without a terminal a command refuses to guess: give the answers as flags and `--yes` (`avenge core setup --help`, `avenge edge setup --help`).
+- Core inside WSL2: the wizard detects it and offers `0.0.0.0`; the port forward from Windows is still yours to set up, see "Core inside WSL2" below.
+
 ## First run
 
 Core (server or laptop):
@@ -35,7 +59,7 @@ docker compose -f edge/compose.yaml up -d
 
 ### Without Docker: release binaries
 
-Every release carries static `edge-filter` archives for Linux (amd64, arm64, armv7), Windows (amd64) and macOS (arm64, amd64). The microphone needs one of them: the Docker image has no sound device.
+Every release carries static archives (each with `edge-filter` and the setup tool `avenge`) for Linux (amd64, arm64, armv7), Windows (amd64) and macOS (arm64, amd64). The microphone needs one of them: the Docker image has no sound device.
 
 ```
 # on the device (arm64 shown; armv7 for a 32-bit Raspberry Pi OS)
@@ -43,7 +67,7 @@ curl -LO https://github.com/casablanque-code/avenge/releases/download/<tag>/aven
 curl -LO https://github.com/casablanque-code/avenge/releases/download/<tag>/SHA256SUMS
 sha256sum -c --ignore-missing SHA256SUMS
 tar -xzf avenge-edge_<tag>_linux_arm64.tar.gz && cd avenge-edge_<tag>_linux_arm64
-cp .env.example .env              # then edit it, see the sections above
+cp .env.example .env              # then edit it (see the sections above), or run ./avenge edge setup
 ./edge-filter --version
 ```
 
@@ -91,6 +115,7 @@ Rules: letters and digits only. Never commit `.env`.
 | Edge exits: `SENSOR_SAMPLE_RATE is required for SERIAL_INTERFACE` | Serial input without a sample rate | Set the real rate of the sensor in Hz in `edge/.env` (the reference setup, an ADXL345, runs at 1600), `up -d`. |
 | Edge prints `warning: rate check: samples arrive at ... Hz` | The source runs at another rate than `SENSOR_SAMPLE_RATE` | Make the capture command or the sensor use the configured rate, or set `SENSOR_SAMPLE_RATE` to the measured one. |
 | Telegraf log: `not authorised`                          | `.env` edited but containers not recreated      | `docker compose -f core/compose.yaml up -d`. |
+| Anything about the link or the setup                    | Many causes                                     | `avenge doctor` on the core and on the edge says where it stops. |
 | Edge log: `dial tcp <core>:1883: i/o timeout`           | The packets never reach the broker: wrong `MQTT_BIND`, a firewall, or a VPN on the core or the edge machine taking the route | On the edge: `nc -vz <core> 1883` and `ip route get <core>` (the answer must name the LAN interface, not a VPN). On the core: `ss -ltn 'sport = :1883'` must show the LAN IP, not `127.0.0.1`. |
 | Edge log: `CONNACK: ... not authorized`                 | `MQTT_PASSWORD` differs from `MQTT_EDGE_PASSWORD` | Align the two, `up -d` on the device. |
 | Telegraf log: `Not enough privileges`                   | Schema from an older version                    | `docker compose -f core/compose.yaml run --rm clickhouse-init`, then `up -d`. |

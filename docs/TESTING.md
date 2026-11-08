@@ -55,6 +55,10 @@ tests/e2e/run.sh
 
 The script generates random passwords, refuses to run if `core/.env` exists (set `E2E_FORCE=1` to back it up and restore it afterwards), removes the stack and its volumes when it finishes (`E2E_KEEP=1` keeps it), and prints container logs on failure.
 
+### The setup wizard (`avenge`)
+
+`cd edge && go test -count=1 ./cmd/avenge ./internal/envedit ./internal/prompt ./internal/pairing ./internal/probe ./internal/netinfo`. Every command runs against fakes: scripted answers instead of a keyboard, a fake list of serial ports and microphones, a fake Docker, local servers standing in for ClickHouse, Grafana and the MQTT broker. The tests read the real `core/.env.example` and `edge/.env.example`, so a renamed setting breaks a test. What this does **not** prove, and a run on a clean machine has to: the real serial measurement, the real `arecord` listing, Docker itself, WSL port forwarding, a terminal's behaviour.
+
 ## Coverage floor
 
 CI fails if total statement coverage of `edge/internal/...` drops below `COVERAGE_MIN` (set in `.github/workflows/ci.yml`). The value sits about a point below the coverage measured on the CI toolchain and is meant to ratchet upwards as tests are added; it is not a quality target by itself. Each run prints the total and a per-package table in the job summary. Statement counts differ slightly between Go versions (the same code measures 80.1% on Go 1.22 and 78.2% on Go 1.27), so compare numbers from the same toolchain. `cmd/edge-filter` (wiring only) is covered by the `image` and `e2e` jobs instead of unit tests.

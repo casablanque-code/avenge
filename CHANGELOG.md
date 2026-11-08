@@ -8,7 +8,19 @@ Entries for 0.1.0 to 0.2.4 were reconstructed from the git history and the conte
 
 ## [Unreleased]
 
+### Added
+
+- **`avenge`, the setup wizard and doctor** (ADR-0010), a second binary in every release archive next to `edge-filter`:
+  - `avenge core setup` asks the bind address (offers the LAN addresses it finds, `0.0.0.0` in WSL) and the Grafana password, generates the five service passwords (24 characters), writes `core/.env` with mode 0600 (the old file is kept as `.env.bak-<time>`), offers to start the core and prints a pairing code. `avenge core pair` prints the code again.
+  - `avenge edge setup` asks sensor or microphone; for a serial ADXL345 it lists the devices, can measure the real sample rate for 5 s (proposes 1600 and the other standard rates), for a microphone it lists the devices and writes the value that works; takes the pairing code (or the address by hand), writes `.env`, checks the link to the core and ends with a 15 s trial run of `edge-filter --no-mqtt`.
+  - `avenge doctor [core|edge]` checks containers, the broker login as an edge device does it, rows arriving in ClickHouse, Grafana, the edge `.env`, the sensor or microphone and the link, and says where a connection stops (name, route and the interface it takes, port, MQTT, login).
+  - Re-running a command shows the current values; every question has a flag, `--yes` never prompts, without a terminal and without `--yes` a command stops with a message.
+  - Status: unit tested with fakes. Not yet run on clean machines.
+- New internal packages used by it: `envedit` (change `.env` values in place), `prompt`, `pairing`, `probe`, `netinfo`.
+
 ### Changed
+
+- Release archives now hold `avenge` next to `edge-filter`; `tools/build-binaries.sh` builds and self-tests both.
 
 - `docs/OPERATIONS.md`: troubleshooting row for `dial tcp ...:1883: i/o timeout` (what to run on both machines) and a short note on running the core inside WSL2.
 

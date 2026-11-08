@@ -15,3 +15,4 @@ These were written after the fact, from the code, the reviews and the mistakes i
 | [0007](0007-no-raw-signal-leaves-the-edge.md) | No raw signal leaves the edge |
 | [0008](0008-trust-the-sample-rate-then-verify-it.md) | Trust the configured sample rate, then verify it |
 | [0009](0009-capture-the-microphone-with-the-system-tool.md) | Capture the microphone with the system's own tool |
+| [0010](0010-a-setup-wizard-that-writes-env.md) | A setup wizard that writes `.env`, and a doctor that reads it |
