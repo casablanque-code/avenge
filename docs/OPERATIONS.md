@@ -27,7 +27,7 @@ avenge core pair           # print the pairing code again
 What it does and does not do:
 
 - A re-run shows the current values as defaults. Working passwords are kept; `avenge core setup --regenerate` makes new ones (every edge device then needs `avenge edge setup` again). The old file is kept as `.env.bak-<time>`.
-- Serial: lists `/dev/serial/by-id/...`, `ttyACM*`, `ttyUSB*`, can **measure** the real sample rate for 5 s and proposes the nearest standard value (the reference ADXL345 firmware runs at 1600). Serial is Linux only. Microphone: lists the devices the way `edge-filter --list-audio` does and writes the value that works.
+- Serial: lists `/dev/serial/by-id/...`, `ttyACM*`, `ttyUSB*`, can **measure** the real sample rate for 5 s and proposes the nearest standard value (the reference firmware, `firmware/ADXL345/adxl345.ino`, is set to 1600). Serial is Linux only. Microphone: lists the devices the way `edge-filter --list-audio` does and writes the value that works.
 - It ends with the link check (TCP, then the MQTT login) and a 15 s trial run of `edge-filter --no-mqtt` (rate check, signal level). The trial sends nothing to the core.
 - The pairing code holds the MQTT password, encoded but not encrypted. Treat it like the password.
 - A change of `.env` takes effect at the next start: `docker compose -f core/compose.yaml up -d` for the core, a restart of `edge-filter` for the edge.

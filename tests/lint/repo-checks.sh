@@ -47,7 +47,7 @@ for doc in "${docs[@]}"; do
     [[ "$path" =~ $ignored ]] && continue
     [[ "$path" == *'*'* || "$path" == *'<'* ]] && continue
     [ -e "$path" ] || fail "$doc mentions missing path: $path"
-  done < <(grep -oE '(core|edge|docs|tests|firmware-sim|\.github)/[A-Za-z0-9_./#-]*[A-Za-z0-9_/]' "$doc" | sort -u)
+  done < <(grep -oE '(core|edge|docs|tests|firmware-sim|firmware|\.github)/[A-Za-z0-9_./#-]*[A-Za-z0-9_/]' "$doc" | sort -u)
   # Relative markdown links: [text](target)
   while read -r target; do
     target="${target%%#*}"
@@ -57,6 +57,40 @@ for doc in "${docs[@]}"; do
   done < <(grep -oE '\]\([^)]+\)' "$doc" | sed -E 's/^\]\(//; s/\)$//' | sort -u)
 done
 [ "$failures" -eq 0 ] && ok "all documented paths exist"
+
+echo "== the sensor firmware agrees with the engine"
+fw=firmware/ADXL345/adxl345.ino
+if [ ! -f "$fw" ]; then
+  fail "$fw is missing"
+else
+  fw_rate=$(sed -nE 's/^const uint32_t SAMPLE_RATE_HZ = ([0-9]+);.*/\1/p' "$fw")
+  fw_baud=$(sed -nE 's/^[[:space:]]*Serial\.begin\(([0-9]+)\);.*/\1/p' "$fw")
+  go_baud=$(sed -nE 's/^[[:space:]]*baud := ([0-9]+)$/\1/p' edge/cmd/edge-filter/main.go | head -n1)
+  if [ -z "$fw_rate" ] || [ -z "$fw_baud" ] || [ -z "$go_baud" ]; then
+    fail "$fw: could not read the rate or baud (the check needs 'const uint32_t SAMPLE_RATE_HZ = N;' and 'Serial.begin(N);')"
+  else
+    if grep -q "setDataRate(ADXL345_DATARATE_${fw_rate}_HZ)" "$fw"; then
+      ok "firmware: SAMPLE_RATE_HZ=$fw_rate and the sensor's data rate register agree"
+    else
+      fail "$fw: SAMPLE_RATE_HZ is $fw_rate but setDataRate() is not ADXL345_DATARATE_${fw_rate}_HZ"
+    fi
+    if grep -qE "^#? ?SENSOR_SAMPLE_RATE=${fw_rate}\$" edge/.env.example; then
+      ok "edge/.env.example documents SENSOR_SAMPLE_RATE=$fw_rate like the firmware"
+    else
+      fail "edge/.env.example does not show SENSOR_SAMPLE_RATE=$fw_rate (the firmware's rate)"
+    fi
+    if [ "$fw_baud" = "$go_baud" ]; then
+      ok "firmware baud $fw_baud equals the engine's default"
+    else
+      fail "firmware baud ($fw_baud) differs from the engine's default ($go_baud)"
+    fi
+  fi
+  if grep -q '0xAA' "$fw" && grep -q '0xAA' edge/internal/sensor/serial_reader.go; then
+    ok "packet start marker 0xAA in both"
+  else
+    fail "0xAA start marker missing in the firmware or in serial_reader.go"
+  fi
+fi
 
 echo "== CHANGELOG.md structure"
 changelog=CHANGELOG.md

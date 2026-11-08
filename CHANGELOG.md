@@ -8,6 +8,15 @@ Entries for 0.1.0 to 0.2.4 were reconstructed from the git history and the conte
 
 ## [Unreleased]
 
+### Added
+
+- `tests/lint/repo-checks.sh` now checks the sensor firmware (`firmware/ADXL345/adxl345.ino`) against the engine: its sample rate against its own data-rate register and against `edge/.env.example`, its baud rate against the engine's default, the `0xAA` start marker on both sides. The docs now say the firmware is in the repository and that nobody here has run it on a board yet.
+
+### Fixed
+
+- `avenge edge setup` run inside `core/` wrote the sensor settings into `core/.env`; it (and `avenge doctor edge`) now refuses a core directory or a core `.env` and says where to run it. Found by running the 0.5.0 binary, not by a test.
+- After `avenge edge setup` the "Run it" line includes `cd <folder> &&` when the shell is not in the folder of the `.env`: `edge-filter` reads `.env` from where it is started, not from where its binary lies.
+
 ## [0.5.0] - 2026-11-09
 
 ### Added

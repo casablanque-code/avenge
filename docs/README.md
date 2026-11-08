@@ -16,6 +16,7 @@
 
 ```
 avenge/
+├── firmware/ADXL345/            # Sensor firmware (ESP32 + ADXL345, Arduino sketch)
 ├── firmware-sim/                # Hardware-free signal generator (Python)
 ├── edge/                        # The engine (Go)
 │   ├── cmd/edge-filter/         # Entrypoint, flags, --help, --explain, graceful shutdown

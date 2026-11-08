@@ -15,7 +15,7 @@ Record the sensor model, mounting, serial settings and the sensor firmware's rea
 
 ## Open prerequisites
 
-A real sensor and a known firmware. The repository has no firmware; see [LAB-NOTES](../LAB-NOTES.md#still-open).
+A real sensor and the firmware, `firmware/ADXL345/adxl345.ino` (ESP32 and an ADXL345 over I2C, 1600 Hz, 230400 baud). It has not been run by this project yet; see [LAB-NOTES](../LAB-NOTES.md#still-open). First step of the run: `avenge edge setup` measures the real rate, and the rate check of the engine confirms it.
 
 ## What this will not show
 
