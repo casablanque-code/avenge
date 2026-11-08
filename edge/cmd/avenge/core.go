@@ -124,7 +124,7 @@ func findCoreDir(dir string) (string, error) {
 			}
 		}
 	}
-	return "", fmt.Errorf("no core/compose.yaml under %q: run this from a clone of the repository, or pass --dir", dir)
+	return "", fmt.Errorf("no core/compose.yaml under %q: run avenge core setup in a clone of the repository (the folder that contains core/), or pass --dir", dir)
 }
 
 type coreFlags struct {

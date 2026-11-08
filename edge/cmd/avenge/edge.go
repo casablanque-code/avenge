@@ -129,6 +129,9 @@ func edgeSetup(args []string, e *env) error {
 	if err != nil {
 		return err
 	}
+	if err := edgeScopeError(f.dir, envPath, file); err != nil {
+		return err
+	}
 	hadEnv := file.String() != ""
 	if !hadEnv {
 		if file, err = envedit.Read(filepath.Join(filepath.Dir(envPath), ".env.example")); err != nil {
@@ -234,6 +237,13 @@ func edgeSetup(args []string, e *env) error {
 	runCmd := "./edge-filter"
 	if bin != "" {
 		runCmd = bin
+	}
+	// edge-filter reads .env from the folder it is started in, not from the
+	// folder of its binary: say so when the two differ.
+	if runDir, derr := filepath.Abs(trialDirFor(envPath)); derr == nil {
+		if cwd, cerr := os.Getwd(); cerr == nil && cwd != runDir {
+			runCmd = fmt.Sprintf("cd %s && %s", runDir, runCmd)
+		}
 	}
 	trialOK := true
 	if !f.noTrial {

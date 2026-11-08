@@ -82,12 +82,21 @@ func doctor(args []string, e *env) error {
 	edgePath := edgeEnvPath(dir)
 	_, edgeStat := os.Stat(edgePath)
 	hasEdge := edgeStat == nil
+	if hasEdge {
+		// a core .env is not an edge one (doctor run inside core/)
+		if cf, rerr := envedit.Read(edgePath); rerr == nil && (isCoreDir(dir) || looksLikeCoreEnv(cf)) {
+			hasEdge = false
+		}
+	}
 	doCore := which == "core" || (which == "" && coreErr == nil)
 	doEdge := which == "edge" || (which == "" && hasEdge)
 	if which == "core" && coreErr != nil {
 		return coreErr
 	}
 	if which == "edge" && !hasEdge {
+		if isCoreDir(dir) {
+			return edgeScopeError(dir, edgePath, nil)
+		}
 		return fmt.Errorf("no edge .env under %q: run avenge edge setup first", dir)
 	}
 	if !doCore && !doEdge {

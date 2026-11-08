@@ -131,7 +131,7 @@ func TestEdgeSetupVibrationInteractive(t *testing.T) {
 	if st.Mode().Perm() != 0o600 {
 		t.Errorf("mode %v", st.Mode().Perm())
 	}
-	mustContain(t, h.out.String(), "measured 1598 Hz -> 1600 Hz", "answers and the login works", "windows processed", "Run it:   /opt/avenge/edge-filter")
+	mustContain(t, h.out.String(), "measured 1598 Hz -> 1600 Hz", "answers and the login works", "windows processed", "&& /opt/avenge/edge-filter")
 	b, _ := os.ReadFile(filepath.Join(dir, ".env"))
 	mustContain(t, string(b), "# ── Sensor tuning")
 }
@@ -355,4 +355,74 @@ func TestEdgeRunDispatch(t *testing.T) {
 	}
 	mustContain(t, h.out.String(), "--pair", "--no-trial", "--interface")
 	_ = time.Second
+}
+
+func TestEdgeSetupRefusesCoreDirectory(t *testing.T) {
+	root := repoWithCore(t)
+	h := newHarness(t, "")
+	h.env.Interactive = false
+	coreDir := filepath.Join(root, "core")
+	err := edgeSetup([]string{"--dir", coreDir, "--yes", "--mode", "mic", "--device", "plughw:1,0", "--pair", testCode(t), "--no-trial"}, h.env)
+	if err == nil || !strings.Contains(err.Error(), "core directory") {
+		t.Fatalf("err = %v", err)
+	}
+	if _, serr := os.Stat(filepath.Join(coreDir, ".env")); serr == nil {
+		t.Error("a .env was written into the core directory")
+	}
+}
+
+func TestEdgeSetupRefusesCoreEnvFile(t *testing.T) {
+	dir := edgeDir(t)
+	os.WriteFile(filepath.Join(dir, ".env"), []byte("GRAFANA_ADMIN_PASSWORD=abc12345\nMQTT_BIND=127.0.0.1\n"), 0o600)
+	h := newHarness(t, "")
+	h.env.Interactive = false
+	err := edgeSetup([]string{"--dir", dir, "--yes", "--mode", "mic", "--device", "plughw:1,0", "--pair", testCode(t), "--no-trial"}, h.env)
+	if err == nil || !strings.Contains(err.Error(), "core .env") {
+		t.Fatalf("err = %v", err)
+	}
+	b, _ := os.ReadFile(filepath.Join(dir, ".env"))
+	if strings.Contains(string(b), "SENSOR_SOURCE") {
+		t.Error("sensor settings were written into the core .env")
+	}
+}
+
+func TestDoctorInsideCoreDirChecksOnlyCore(t *testing.T) {
+	root, h := coreFixture(t, "mic_01\t1\t2026-11-08 14:00:01.000\n")
+	coreDir := filepath.Join(root, "core")
+	if err := doctor([]string{"--dir", coreDir}, h.env); err != nil {
+		t.Fatalf("%v\n%s", err, h.out)
+	}
+	if strings.Contains(h.out.String(), "Edge (") {
+		t.Errorf("the core .env was checked as an edge one:\n%s", h.out)
+	}
+	h2 := newHarness(t, "")
+	if err := doctor([]string{"edge", "--dir", coreDir}, h2.env); err == nil || !strings.Contains(err.Error(), "core directory") {
+		t.Errorf("doctor edge in core/: %v", err)
+	}
+}
+
+func TestEdgeSetupSaysWhereToRun(t *testing.T) {
+	dir := edgeDir(t)
+	cwd, _ := os.Getwd()
+	h := newHarness(t, "")
+	h.env.Interactive = false
+	args := []string{"--dir", dir, "--yes", "--mode", "mic", "--device", "plughw:1,0", "--pair", testCode(t), "--no-trial"}
+	if err := edgeSetup(args, h.env); err != nil {
+		t.Fatal(err)
+	}
+	mustContain(t, h.out.String(), "cd "+dir+" && /opt/avenge/edge-filter")
+
+	// started in the folder of the .env: no cd needed
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chdir(cwd) })
+	h2 := newHarness(t, "")
+	h2.env.Interactive = false
+	if err := edgeSetup(append([]string{"--dir", "."}, args[2:]...), h2.env); err != nil {
+		t.Fatalf("%v\n%s", err, h2.out)
+	}
+	if strings.Contains(h2.out.String(), "cd ") {
+		t.Errorf("cd printed although already in place:\n%s", h2.out)
+	}
 }
