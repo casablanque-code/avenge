@@ -205,9 +205,17 @@ check "per-minute aggregate populated" \
 
 # ── 6. retention: nothing grows without a limit ─────────────────────────
 step "Retention (default RETENTION_DAYS=30)"
-retention_is() { # <table> <days>
-  ch default "${PW[CLICKHOUSE_PASSWORD]}" "SHOW CREATE TABLE iot.$1" | grep -q "INTERVAL $2 DAY"
+# ClickHouse may print the TTL as "INTERVAL 30 DAY" or, in newer versions,
+# normalised as "toIntervalDay(30)": accept both.
+ttl_of() { # <table>
+  ch default "${PW[CLICKHOUSE_PASSWORD]}" "SELECT extract(engine_full, 'TTL .*') FROM system.tables WHERE database = 'iot' AND name = '$1'"
 }
+retention_is() { # <table> <days>
+  ttl_of "$1" | grep -Eq "toIntervalDay\($2\)|INTERVAL $2 DAY"
+}
+for t in telemetry anomaly_events telemetry_1m telemetry_raw; do
+  echo "    $t: $(ttl_of "$t" 2>&1)"
+done
 check "iot.telemetry keeps 30 days" retention_is telemetry 30
 check "iot.anomaly_events keeps 30 days" retention_is anomaly_events 30
 check "iot.telemetry_1m keeps 30 days" retention_is telemetry_1m 30

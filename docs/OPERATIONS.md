@@ -276,7 +276,7 @@ Docker's container logs are rotated by Docker (10 MB, 3 files per container).
 ```
 docker exec sm_clickhouse clickhouse-client --user default --password '<CLICKHOUSE_PASSWORD>' --query \
   "SELECT database, table, formatReadableSize(sum(bytes_on_disk)) AS size, sum(rows) AS rows FROM system.parts WHERE active GROUP BY database, table ORDER BY sum(bytes_on_disk) DESC"
-docker exec sm_clickhouse clickhouse-client --user default --password '<CLICKHOUSE_PASSWORD>' --query "SHOW CREATE TABLE iot.telemetry"   # the TTL clause shows the value in force
+docker exec sm_clickhouse clickhouse-client --user default --password '<CLICKHOUSE_PASSWORD>' --query "SHOW CREATE TABLE iot.telemetry"   # the TTL clause shows the value in force, written as toIntervalDay(30) for 30 days
 ```
 
 An installation that ran before the system-log limits existed keeps its old log tables as they were; clear them once with `TRUNCATE TABLE system.query_log` (and the same for `trace_log`, `metric_log`, `text_log`) if the query above shows them large.
