@@ -91,10 +91,15 @@ Rules: letters and digits only. Never commit `.env`.
 | Edge exits: `SENSOR_SAMPLE_RATE is required for SERIAL_INTERFACE` | Serial input without a sample rate | Set the real rate of the sensor in Hz in `edge/.env` (the reference setup, an ADXL345, runs at 1600), `up -d`. |
 | Edge prints `warning: rate check: samples arrive at ... Hz` | The source runs at another rate than `SENSOR_SAMPLE_RATE` | Make the capture command or the sensor use the configured rate, or set `SENSOR_SAMPLE_RATE` to the measured one. |
 | Telegraf log: `not authorised`                          | `.env` edited but containers not recreated      | `docker compose -f core/compose.yaml up -d`. |
+| Edge log: `dial tcp <core>:1883: i/o timeout`           | The packets never reach the broker: wrong `MQTT_BIND`, a firewall, or a VPN on the core or the edge machine taking the route | On the edge: `nc -vz <core> 1883` and `ip route get <core>` (the answer must name the LAN interface, not a VPN). On the core: `ss -ltn 'sport = :1883'` must show the LAN IP, not `127.0.0.1`. |
 | Edge log: `CONNACK: ... not authorized`                 | `MQTT_PASSWORD` differs from `MQTT_EDGE_PASSWORD` | Align the two, `up -d` on the device. |
 | Telegraf log: `Not enough privileges`                   | Schema from an older version                    | `docker compose -f core/compose.yaml run --rm clickhouse-init`, then `up -d`. |
 | Grafana datasource error                                | Stale Grafana password                          | `docker compose -f core/compose.yaml up -d`. |
 | Edge exits with permission denied on `/dev/tty*`        | Wrong `DIALOUT_GID` or `SERIAL_PORT`            | `getent group dialout` on the host, fix `edge/.env`. |
+
+### Core inside WSL2
+
+Not a supported main path, but it works. WSL2 sits behind NAT, so the LAN cannot see port 1883 of the Linux side. On Windows 11 the mirrored networking mode fixes that; on Windows 10 forward the port from Windows (`netsh interface portproxy add v4tov4 listenaddress=0.0.0.0 listenport=1883 connectaddress=<WSL address> connectport=1883`, repeated after every WSL restart, plus an inbound firewall rule for the port) and set `MQTT_BIND=0.0.0.0`. Observed once: a VPN client running on the Windows host (AmneziaVPN) made the LAN address unreachable until it was switched off; a split-tunnel exclusion for the LAN is the likely fix, not tested. On a normal Linux host none of this applies.
 
 ## Health checks
 

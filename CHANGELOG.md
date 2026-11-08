@@ -8,6 +8,10 @@ Entries for 0.1.0 to 0.2.4 were reconstructed from the git history and the conte
 
 ## [Unreleased]
 
+### Changed
+
+- `docs/OPERATIONS.md`: troubleshooting row for `dial tcp ...:1883: i/o timeout` (what to run on both machines) and a short note on running the core inside WSL2.
+
 ## [0.4.0] - 2026-11-08
 
 ### Added
