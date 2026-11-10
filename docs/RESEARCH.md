@@ -32,6 +32,7 @@ Statuses are deliberately blunt. **Supported** means a recorded test passed on t
 | H6 | The audio profile works on a real room, not only on generated sound | **Not tested.** Only synthetic sound so far. The laptop microphone is next. | [E-004](experiments/E-004-laptop-microphone.md) (planned) |
 | H7 | A wrong sample rate is caught while running | **Supported on live-paced synthetic pipes.** Not yet seen on real hardware. | unit tests, [LAB-NOTES](LAB-NOTES.md) |
 | H8 | The engine copes with a background that is not steady | **Not supported in simulation.** A lasting change keeps it in anomaly until restart; a non-stationary background produces onsets. Real rooms not yet tried. | [E-007](experiments/E-007-living-room-model.md), [E-004](experiments/E-004-laptop-microphone.md) (planned) |
+| H9 | The detectors find real faults in real recordings made by others, at a false-alarm rate we can state | **Not tested.** No public recording has been fed to the engine yet. Steady machines (fan, pump) are the expected fit; valve and slide rail are expected to fail. | [E-009](experiments/E-009-public-datasets.md) (planned) |
 
 A result counts as demonstrated only when the test and its outcome are written down.
 
@@ -57,6 +58,7 @@ We only publish a hardware, performance or reliability claim when it is both per
 |---|---|
 | `S` | Synthetic signal, fixed seed, anyone can reproduce it |
 | `B` | Bench hardware, public data and configuration |
+| `P` | Real recordings made by others, public data (for example MIMII, NASA IMS). The labels are not ours; the stream built from clips is |
 | `F` | Field deployment, public data |
 | `N` | Under NDA, unverifiable by readers, never used as evidence here |
 

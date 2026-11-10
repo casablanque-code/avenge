@@ -8,6 +8,10 @@ Entries for 0.1.0 to 0.2.4 were reconstructed from the git history and the conte
 
 ## [Unreleased]
 
+### Added
+
+- `docs/experiments/E-009-public-datasets.md`: plan to run the engine on public recordings with known faults (MIMII sound, NASA IMS bearing vibration), with the pass line and the predictions written before any data is touched; new evidence level `P` and hypothesis H9 in `docs/RESEARCH.md`. Planned only; nothing has been downloaded or run.
+
 ## [0.5.1] - 2026-11-09
 
 ### Added

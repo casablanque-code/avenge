@@ -46,3 +46,4 @@ Anything that depends on a recording: save it with `--record`, write its SHA-256
 | [E-006](E-006-vibration-bench.md) | Does the vibration path work on a real sensor? | B | planned |
 | [E-007](E-007-living-room-model.md) | What happens with a TV, speech, a sound that stays on? | S (crude model) | run 1 done, exploratory |
 | [E-008](E-008-storage-growth.md) | Does the disk stay bounded in a long run? | S | planned |
+| [E-009](E-009-public-datasets.md) | Does it find real faults in public recordings, and how often does it cry wolf? | P | planned |
